@@ -1,0 +1,23 @@
+### Zweistufige Beschleuniger-IDS
+
+| Paper | Autoren | HW | Architektur & Kernaussage |
+|---|---|---|---|
+| [**Pigasus** — *Achieving 100Gbps Intrusion Prevention on a Single Server*](https://www.usenix.org/conference/osdi20/presentation/zhao-zhipeng) | Z. Zhao, H. Sadok, N. Atre, J. C. Hoe, V. Sekar, J. Sherry | FPGA-SmartNIC | FPGA-first: TCP-Reassembly und Exact-String-Matching auf der FPGA; nur „verdächtige" Pakete gehen in den „full match" auf der CPU — im Schnitt ~1,1 Signaturen/Paket und nur ~5 % der Pakete erreichen die CPU. 100 Gbit/s mit ~5 Cores + 1 FPGA, 38× weniger Strom als CPU-only |
+| [**SmartWatch** — *Accurate traffic analysis and flow-state tracking for intrusion prevention using SmartNICs*](https://dl.acm.org/doi/10.1145/3485983.3494861) | S. Panda, Y. Feng, S. G. Kulkarni, K. K. Ramakrishnan, N. Duffield, L. N. Bhuyan | Switch + Proc-SmartNIC | Switch macht grobkörnige Analyse und leitet nur die verdächtige Teilmenge an die SmartNIC weiter, die als „bump-in-the-wire" feinkörnig nachanalysiert; ein Regelkreis tunt die Switch-Queries. 2,39× bessere Detektionsrate als reine Switch-Lösungen, erkennt u.a. Covert Timing Channels und Website-Fingerprinting |
+| [**PAMO** — *Pattern Matching Offload for Intrusion Detection Systems*](https://dl.acm.org/doi/10.1145/3721462.3770768) | L. Šišmiš, C. Evrard, E. Rivière, T. Barbette | BlueField-2 (RXP) | Lagert das teuerste IDS-Stück — Pattern-Matching — auf die RXP-Engine der BF-2 aus, integriert in Suricata als Prefilter-Stufe; >80 Gbit/s, +40 % ggü. Software-Suricata; ermöglicht ein komplettes IDS allein auf der SmartNIC (8 ARM-Cores + RXP) |
+
+### ML-basiertes IDS direkt auf SmartNIC/DPU
+
+| Paper | Autoren | HW | Architektur & Kernaussage |
+|---|---|---|---|
+| [**Elizalde et al.** — *Accelerated Anomaly Detection on IoT Traffic Using SmartNICs*](https://research.cec.sc.edu/files/cyberinfra/files/documents/iot-globecom-25.pdf) | S. Elizalde, A. AlSabeh, A. Mazloum, A. GSPN, E. Kfoury, J. Crichigno | BlueField ARM | Kompaktes MLP off-path auf den BF-ARM-Cores, NEON-SIMD, einstufig; 98,6 % Genauigkeit, bis 37,5 Mpps |
+| [**N3IC** — *Re-architecting Traffic Analysis with Neural Network Interface Cards*](https://www.usenix.org/conference/nsdi22/presentation/siracusano) | G. Siracusano, S. Galea, D. Sanvito, M. Malekzadeh, G. Antichi, P. Costa, H. Haddadi, R. Bifulco | Netronome / FPGA-NIC | Binäres NN via µC/P4 in den NIC-Datapath kompiliert; evaluiert u.a. auf Anomaly Detection; bis 100× niedrigere Latenz, 1,5–7× Durchsatz |
+| [**ML-NIC** — *Accelerating machine learning inference using smart network interface cards*](https://www.frontiersin.org/journals/computer-science/articles/10.3389/fcomp.2024.1493399/full) | Raghav Kapoor David C. Anastasiu Sean Choi | SmartNIC | Framework, das Tree-Modelle auf SmartNICs mappt und dabei mehr Geräte-Parallelität nutzt als frühere On-NIC-Deployments |
+
+### Weitere SmartNIC/DPU-Security (Kontext & Baselines)
+
+| Paper | Autoren | HW | Architektur & Kernaussage |
+|---|---|---|---|
+| [**immUNITY** — *Detecting and Mitigating Low Volume & Slow Attacks with Programmable Switches and SmartNICs*](https://arxiv.org/abs/2603.20573) | Cuidi Wei, Shaoyu Tu, Daiki Hata, Toru Hasegawa, Yuki Koizumi, K. K. Ramakrishnan, Junji Takemasa, Timothy Wood | Switch (Tofino v1) + SmartNIC (BF-3) | Switch macht zustandsloses, platzsparendes Filtern (Malicious Source Table + Overwriting Flow Filter + Heavy-Hitter-Sketch) und reduziert so den Traffic; SmartNIC macht ML-Klassifikation + IDS-Regeln, Regelkreis aktualisiert die Switch-Tabellen. Gegen Low-Volume-/Slow-Attacks |
+| [**Fidas** — *Fortifying the cloud via comprehensive FPGA-based offloading for intrusion detection*](https://dl.acm.org/doi/10.1145/3470496.3533043) | Jian Chen, Xiaoyu Zhang, Tao Wang, Ying Zhang, Tao Chen, Jiajun Chen, Mingxu Xie, Qiang Liu | FPGA-SmartNIC | „Hardware-beschleunigtes Preprocessing + software-basierte Präzisions-Detektion": FPGA+CPU-Heterogen, Five-Tuple-Segment-Matching (Hash-Bitmap), umfassendes Offload von NIC, Rule-Pattern-Matching und Flow-Rate-Klassifikation |
+| [**P4Pir** — *In-Network Analysis for Smart IoT Gateways*](https://dl.acm.org/doi/10.1145/3546037.3546060) | M. Zang, C. Zheng, R. Stoyanov, L. Dittmann, N. Zilberman | Netronome SmartNIC | Verteiltes In-Network-IDS an IoT-Gateways (auf Planter aufbauend); leitet periodisch kompakte Feature-Digests an einen Controller, der per unüberwachtem iForest den codierten Baum nachtrainiert (URLLC-Umfeld) |
