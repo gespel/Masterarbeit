@@ -12,7 +12,7 @@
 |---|---|---|---|
 | [**Elizalde et al.** — *Accelerated Anomaly Detection on IoT Traffic Using SmartNICs*](https://research.cec.sc.edu/files/cyberinfra/files/documents/iot-globecom-25.pdf) | S. Elizalde, A. AlSabeh, A. Mazloum, A. GSPN, E. Kfoury, J. Crichigno | BlueField ARM | Kompaktes MLP off-path auf den BF-ARM-Cores, NEON-SIMD, einstufig; 98,6 % Genauigkeit, bis 37,5 Mpps |
 | [**N3IC** — *Re-architecting Traffic Analysis with Neural Network Interface Cards*](https://www.usenix.org/conference/nsdi22/presentation/siracusano) | G. Siracusano, S. Galea, D. Sanvito, M. Malekzadeh, G. Antichi, P. Costa, H. Haddadi, R. Bifulco | Netronome / FPGA-NIC | Binäres NN via µC/P4 in den NIC-Datapath kompiliert; evaluiert u.a. auf Anomaly Detection; bis 100× niedrigere Latenz, 1,5–7× Durchsatz |
-| [**ML-NIC** — *Accelerating machine learning inference using smart network interface cards*](https://www.frontiersin.org/journals/computer-science/articles/10.3389/fcomp.2024.1493399/full) | Raghav Kapoor David C. Anastasiu Sean Choi | SmartNIC | Framework, das Tree-Modelle auf SmartNICs mappt und dabei mehr Geräte-Parallelität nutzt als frühere On-NIC-Deployments |
+| [**ML-NIC** — *Accelerating machine learning inference using smart network interface cards*](https://www.frontiersin.org/journals/computer-science/articles/10.3389/fcomp.2024.1493399/full) | Raghav Kapoor, David C. Anastasiu, Sean Choi | SmartNIC | Framework, das Tree-Modelle auf SmartNICs mappt und dabei mehr Geräte-Parallelität nutzt als frühere On-NIC-Deployments |
 
 ### Weitere SmartNIC/DPU-Security (Kontext & Baselines)
 
