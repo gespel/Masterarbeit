@@ -9,3 +9,5 @@ Grundsätzlich gilt mehr Pakete sind besser, da so das kaskadierte ML Modell auf
 - destilled anomaly Model (?)
 
 - Auf den ARM-Cores der DPA läuft ein ML-Modell, das die selektierten Pakete klassifiziert. Der Austausch der Selektion funktioniert Adressen basiert im shared Memory. Es wird kein Speicher kopiert, sondern nur Adressen ausgewählt. Die DPA wählt so Pakete aus deren Adressen dann dem ARM übergeben werden. Das ML-Modell auf dem ARM kann dann die Pakete klassifizieren und ggf. auch live weiter trainiert werden.
+
+- Kaskadiertes Modell kann zusammen trainiert werden und dann später Unterteilt ausgeführt werden (bspw. BNN auf DPA und DNN auf ARM)
