@@ -41,6 +41,7 @@ int main(void) {
 	DOCA_TRY(doca_sync_event_start(done));
 
 	DOCA_TRY(doca_dpa_kernel_launch_update_set(dpa, NULL, 0, done, 1, 1, &small_neural_network));
+	//DOCA_TRY(doca_dpa_kernel_launch_update_set(dpa, NULL, 0, done, 1, 1, &calc_primes));
 	DOCA_TRY(doca_sync_event_wait_gt(done, 0, UINT64_MAX));
 	printf("kernel done\n");
 

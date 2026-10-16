@@ -6,10 +6,10 @@ __dpa_global__ void hello(void) {
 }
 
 __dpa_global__ void calc_primes() {
-	int primes[10000];
+	int primes[1000000];
 	uint64_t start_time = __dpa_thread_time();
 	uint64_t start_cycles = __dpa_thread_cycles();
-	for (int num = 2; num <= 10000; num++) {
+	for (int num = 2; num <= 1000000; num++) {
 		int is_prime = 1;
 		for (int i = 2; i * i <= num; i++) {
 			if (num % i == 0) {
@@ -73,34 +73,36 @@ static void dense(const int8_t *in, const int8_t *w, const int32_t *b, int8_t *o
 
 __dpa_global__ void small_neural_network(void) {
 	DOCA_DPA_DEV_LOG_INFO("Running small neural network\n");
+	for(int i = 0; i < 1000; i++) {
 
-	int8_t w1[NN_H1 * NN_IN], w2[NN_H2 * NN_H1], w3[NN_OUT * NN_H2];
-	int32_t b1[NN_H1] = {0}, b2[NN_H2] = {0}, b3[NN_OUT] = {0};
-	int8_t x[NN_IN], h1[NN_H1], h2[NN_H2], y[NN_OUT];
-	uint32_t seed = 0x12345678;
+		int8_t w1[NN_H1 * NN_IN], w2[NN_H2 * NN_H1], w3[NN_OUT * NN_H2];
+		int32_t b1[NN_H1] = {0}, b2[NN_H2] = {0}, b3[NN_OUT] = {0};
+		int8_t x[NN_IN], h1[NN_H1], h2[NN_H2], y[NN_OUT];
+		uint32_t seed = 0x12345678;
 
-	fill_rand(w1, sizeof(w1), &seed);
-	fill_rand(w2, sizeof(w2), &seed);
-	fill_rand(w3, sizeof(w3), &seed);
+		fill_rand(w1, sizeof(w1), &seed);
+		fill_rand(w2, sizeof(w2), &seed);
+		fill_rand(w3, sizeof(w3), &seed);
 
-	uint64_t class_count[NN_OUT] = {0};
-	uint64_t start_time = __dpa_thread_time();
-	uint64_t start_cycles = __dpa_thread_cycles();
+		uint64_t class_count[NN_OUT] = {0};
+		uint64_t start_time = __dpa_thread_time();
+		uint64_t start_cycles = __dpa_thread_cycles();
 
-	for (int it = 0; it < NN_ITERS; it++) {
-		fill_rand(x, NN_IN, &seed);  /* new input sample each iteration */
-		dense(x, w1, b1, h1, NN_H1, NN_IN, 1);
-		dense(h1, w2, b2, h2, NN_H2, NN_H1, 1);
-		dense(h2, w3, b3, y, NN_OUT, NN_H2, 0);
-		class_count[y[1] > y[0]]++;  /* argmax */
+		for (int it = 0; it < NN_ITERS; it++) {
+			fill_rand(x, NN_IN, &seed);  /* new input sample each iteration */
+			dense(x, w1, b1, h1, NN_H1, NN_IN, 1);
+			dense(h1, w2, b2, h2, NN_H2, NN_H1, 1);
+			dense(h2, w3, b3, y, NN_OUT, NN_H2, 0);
+			class_count[y[1] > y[0]]++;  /* argmax */
+		}
+
+		uint64_t end_cycles = __dpa_thread_cycles();
+		uint64_t end_time = __dpa_thread_time();
+		uint64_t time = end_time - start_time;
+		uint64_t cycles = end_cycles - start_cycles;
+
+		/* logging the result keeps the compiler from optimizing the loop away */
+		DOCA_DPA_DEV_LOG_INFO("NN: %d inferences, class0=%lu class1=%lu\n", NN_ITERS, class_count[0], class_count[1]);
+		DOCA_DPA_DEV_LOG_INFO("NN: %lu ms time, %lu cycles, %lu cycles/inference\n", time/1000, cycles, cycles / NN_ITERS);
 	}
-
-	uint64_t end_cycles = __dpa_thread_cycles();
-	uint64_t end_time = __dpa_thread_time();
-	uint64_t ticks = end_time - start_time;
-	uint64_t cycles = end_cycles - start_cycles;
-
-	/* logging the result keeps the compiler from optimizing the loop away */
-	DOCA_DPA_DEV_LOG_INFO("NN: %d inferences, class0=%lu class1=%lu\n", NN_ITERS, class_count[0], class_count[1]);
-	DOCA_DPA_DEV_LOG_INFO("NN: %lu ticks, %lu cycles, %lu cycles/inference\n", ticks, cycles, cycles / NN_ITERS);
 }
