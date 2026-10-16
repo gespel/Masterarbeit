@@ -5,28 +5,40 @@ __dpa_global__ void hello(void) {
 	DOCA_DPA_DEV_LOG_INFO("Hello from DPA\n");
 }
 
+#define MAX_PRIME 10000
+#define CALCULATION_ITERS 1000
+
 __dpa_global__ void calc_primes() {
-	int primes[1000000];
+	uint32_t primes[MAX_PRIME];
+	int num_primes = 0;
 	uint64_t start_time = __dpa_thread_time();
-	uint64_t start_cycles = __dpa_thread_cycles();
-	for (int num = 2; num <= 1000000; num++) {
-		int is_prime = 1;
-		for (int i = 2; i * i <= num; i++) {
-			if (num % i == 0) {
-				is_prime = 0;
-				primes[num - 1] = i;
-				break;
+	//uint64_t start_cycles = __dpa_thread_cycles();
+	for (int iter = 0; iter < CALCULATION_ITERS; iter++) {
+		for (int num = 2; num <= MAX_PRIME; num++) {
+			int is_prime = 1;
+			for (int i = 2; i * i <= num; i++) {
+				if (num % i == 0) {
+					is_prime = 0;
+					break;
+				}
+			}
+			if (is_prime) {
+				primes[num_primes++] = num;
+				//DOCA_DPA_DEV_LOG_INFO("Prime: %d\n", num);
 			}
 		}
-		/*if (is_prime) {
-			DOCA_DPA_DEV_LOG_INFO("Prime: %d\n", num);
-		}*/
+		if (iter == CALCULATION_ITERS - 1) {
+			//DOCA_DPA_DEV_LOG_INFO("Iteration %d done, found %d primes\n", iter + 1, num_primes);
+			break;
+		}
+		num_primes = 0;  // Reset for the next iteration
 	}
 	uint64_t end_time = __dpa_thread_time();
-	uint64_t end_cycles = __dpa_thread_cycles();
-	DOCA_DPA_DEV_LOG_INFO("Prime calculation took %lu time units\n", end_time - start_time);
-	DOCA_DPA_DEV_LOG_INFO("Prime calculation took %lu cycles\n", end_cycles - start_cycles);
-	DOCA_DPA_DEV_LOG_INFO("Calculated processor frequency: %lu", (end_cycles - start_cycles) / (end_time - start_time));
+	//uint64_t end_cycles = __dpa_thread_cycles();
+	DOCA_DPA_DEV_LOG_INFO("Last calculated prime: %d\n", primes[num_primes - 1]);
+	DOCA_DPA_DEV_LOG_INFO("Prime calculation took %lu ms\n", (end_time - start_time) / 1000);
+	//DOCA_DPA_DEV_LOG_INFO("Prime calculation took %lu cycles\n", end_cycles - start_cycles);
+	//DOCA_DPA_DEV_LOG_INFO("Calculated processor frequency: %lu\n", (end_cycles - start_cycles) / (end_time - start_time));
 }
 
 /*
