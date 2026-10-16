@@ -10,8 +10,7 @@
 extern struct doca_dpa_app *dpa_bench_app;
 extern doca_dpa_func_t hello;
 
-static struct doca_dev *open_dpa_dev(void)
-{
+static struct doca_dev *open_dpa_dev(void) {
 	struct doca_devinfo **list;
 	struct doca_dev *dev = NULL;
 	uint32_t n;
@@ -25,8 +24,7 @@ static struct doca_dev *open_dpa_dev(void)
 	return dev;
 }
 
-int main(void)
-{
+int main(void) {
 	struct doca_dev *dev = open_dpa_dev();
 	struct doca_dpa *dpa;
 	struct doca_sync_event *done;
