@@ -1,0 +1,30 @@
+{
+  "name": "Masterarbeit (DOCA + CUDA)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "runArgs": [
+    "--privileged",
+    "--network=host",
+    "--shm-size=1g"
+  ],
+  "mounts": [
+    "source=/dev/hugepages,target=/dev/hugepages,type=bind,consistency=cached"
+  ],
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "remoteUser": "root",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.cmake-tools",
+        "mesonbuild.mesonbuild",
+        "ms-python.python",
+        "ms-toolsai.jupyter",
+        "nvidia.nsight-vscode-edition",
+        "yzhang.markdown-all-in-one"
+      ]
+    }
+  }
+}
