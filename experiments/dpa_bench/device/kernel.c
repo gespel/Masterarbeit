@@ -6,13 +6,14 @@ __dpa_global__ void hello(void) {
 }
 
 #define MAX_PRIME 10000
-#define CALCULATION_ITERS 1000
+#define CALCULATION_ITERS 10
 
 __dpa_global__ void calc_primes() {
+	DOCA_DPA_DEV_LOG_INFO("Calculating primes up to %d with %d iterations\n", MAX_PRIME, CALCULATION_ITERS);
 	uint32_t primes[MAX_PRIME];
 	int num_primes = 0;
 	uint64_t start_time = __dpa_thread_time();
-	//uint64_t start_cycles = __dpa_thread_cycles();
+	uint64_t start_cycles = __dpa_thread_cycles();
 	for (int iter = 0; iter < CALCULATION_ITERS; iter++) {
 		for (int num = 2; num <= MAX_PRIME; num++) {
 			int is_prime = 1;
@@ -34,11 +35,11 @@ __dpa_global__ void calc_primes() {
 		num_primes = 0;  // Reset for the next iteration
 	}
 	uint64_t end_time = __dpa_thread_time();
-	//uint64_t end_cycles = __dpa_thread_cycles();
+	uint64_t end_cycles = __dpa_thread_cycles();
 	DOCA_DPA_DEV_LOG_INFO("Last calculated prime: %d\n", primes[num_primes - 1]);
 	DOCA_DPA_DEV_LOG_INFO("Prime calculation took %lu ms\n", (end_time - start_time) / 1000);
 	//DOCA_DPA_DEV_LOG_INFO("Prime calculation took %lu cycles\n", end_cycles - start_cycles);
-	//DOCA_DPA_DEV_LOG_INFO("Calculated processor frequency: %lu\n", (end_cycles - start_cycles) / (end_time - start_time));
+	DOCA_DPA_DEV_LOG_INFO("Calculated processor frequency: %lu MHz\n", (end_cycles - start_cycles) / (end_time - start_time));
 }
 
 /*

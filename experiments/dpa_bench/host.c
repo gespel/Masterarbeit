@@ -3,6 +3,7 @@
 #include <doca_dev.h>
 #include <doca_dpa.h>
 #include <doca_sync_event.h>
+#include <time.h>
 
 #define DOCA_TRY(x) do { doca_error_t r_ = (x); if (r_ != DOCA_SUCCESS) { \
 	fprintf(stderr, "%s failed: %s\n", #x, doca_error_get_descr(r_)); exit(1); } } while (0)
@@ -40,10 +41,13 @@ int main(void) {
 	DOCA_TRY(doca_sync_event_add_subscriber_location_cpu(done, dev));
 	DOCA_TRY(doca_sync_event_start(done));
 
+	clock_t start = clock();
 	//DOCA_TRY(doca_dpa_kernel_launch_update_set(dpa, NULL, 0, done, 1, 1, &small_neural_network));
 	DOCA_TRY(doca_dpa_kernel_launch_update_set(dpa, NULL, 0, done, 1, 1, &calc_primes));
 	DOCA_TRY(doca_sync_event_wait_gt(done, 0, UINT64_MAX));
+	clock_t end = clock();
 	printf("kernel done\n");
+	printf("Host Execution time: %f seconds\n", (double)(end - start) / CLOCKS_PER_SEC);
 
 	doca_sync_event_destroy(done);
 	doca_dpa_destroy(dpa);
