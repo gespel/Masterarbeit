@@ -27,6 +27,32 @@ static struct doca_dev *open_dpa_dev(void) {
 	return dev;
 }
 
+/*
+Minimales starten einer RPC Funktion
+Device (device/kernel.c):
+
+
+__dpa_rpc__ uint64_t hello(void) {
+	DOCA_DPA_DEV_LOG_INFO("Hello from DPA\n");
+	return 0;
+}
+Host (der Kern von main):
+
+struct doca_dev *dev = open_dpa_dev();
+struct doca_dpa *dpa;
+uint64_t ret;
+
+DOCA_TRY(doca_dpa_create(dev, &dpa));
+DOCA_TRY(doca_dpa_set_app(dpa, dpa_bench_app));
+DOCA_TRY(doca_dpa_set_log_level(dpa, DOCA_DPA_DEV_LOG_LEVEL_INFO));
+DOCA_TRY(doca_dpa_start(dpa));
+
+DOCA_TRY(doca_dpa_rpc(dpa, &hello, &ret));
+
+doca_dpa_destroy(dpa);
+doca_dev_close(dev);
+*/
+
 int main(void) {
 	struct doca_dev *dev = open_dpa_dev();
 	struct doca_dpa *dpa;
