@@ -53,7 +53,7 @@ __dpa_global__ void calc_primes() {
 #define NN_H3		8
 #define NN_OUT		1
 #define NN_SHIFT	7
-#define NN_ITERS	10
+#define NN_ITERS	10000
 
 static uint32_t xorshift32(uint32_t *s) {
 	uint32_t x = *s;
