@@ -49,6 +49,9 @@ int main(void) {
 	printf("kernel done\n");
 	printf("Host Execution time: %f seconds\n", (double)(end - start) / CLOCKS_PER_SEC);
 
+	uint64_t ret;
+	DOCA_TRY(doca_dpa_rpc(dpa, &hello, &ret));
+
 	doca_sync_event_destroy(done);
 	doca_dpa_destroy(dpa);
 	doca_dev_close(dev);

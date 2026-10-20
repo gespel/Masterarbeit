@@ -1,8 +1,9 @@
 #include <dpaintrin.h>
 #include <doca_dpa_dev.h>
 
-__dpa_global__ void hello(void) {
+__dpa_rpc__ uint64_t hello(void) {
 	DOCA_DPA_DEV_LOG_INFO("Hello from DPA\n");
+	return 0;
 }
 
 #define MAX_PRIME 10000
