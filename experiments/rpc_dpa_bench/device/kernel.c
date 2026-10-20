@@ -43,16 +43,17 @@ __dpa_global__ void calc_primes() {
 }
 
 /*
- * Small quantized MLP (16 -> 32 -> 16 -> 2), int8 weights/activations,
+ * Small quantized MLP (10 -> 16 -> 16 -> 8 -> 1), int8 weights/activations,
  * int32 accumulators. The DPA has no FPU, so everything is integer math.
  * Weights are pseudo-random (no trained model yet) - this is a compute benchmark.
  */
-#define NN_IN      16
-#define NN_H1      32
-#define NN_H2      16
-#define NN_OUT     2
-#define NN_SHIFT   7      /* requantization: acc >> NN_SHIFT */
-#define NN_ITERS   10000  /* number of inferences to time */
+#define NN_IN		10
+#define NN_H1		16
+#define NN_H2		16
+#define NN_H3		8
+#define NN_OUT		1
+#define NN_SHIFT	7
+#define NN_ITERS	10
 
 static uint32_t xorshift32(uint32_t *s) {
 	uint32_t x = *s;
@@ -68,7 +69,7 @@ static void fill_rand(int8_t *buf, int n, uint32_t *seed) {
 }
 
 /* out = act(W * in + b); W is [rows][cols], row-major */
-static void dense(const int8_t *in, const int8_t *w, const int32_t *b, int8_t *out, int rows, int cols, int relu) {
+static void layer(const int8_t *in, const int8_t *w, const int32_t *b, int8_t *out, int rows, int cols, int relu) {
 	for (int r = 0; r < rows; r++) {
 		int32_t acc = b[r];
 		for (int c = 0; c < cols; c++)
@@ -86,36 +87,36 @@ static void dense(const int8_t *in, const int8_t *w, const int32_t *b, int8_t *o
 
 __dpa_global__ void small_neural_network(void) {
 	DOCA_DPA_DEV_LOG_INFO("Running small neural network\n");
-	for(int i = 0; i < 1000; i++) {
 
-		int8_t w1[NN_H1 * NN_IN], w2[NN_H2 * NN_H1], w3[NN_OUT * NN_H2];
-		int32_t b1[NN_H1] = {0}, b2[NN_H2] = {0}, b3[NN_OUT] = {0};
-		int8_t x[NN_IN], h1[NN_H1], h2[NN_H2], y[NN_OUT];
-		uint32_t seed = 0x12345678;
+	int8_t w1[NN_H1 * NN_IN], w2[NN_H2 * NN_H1], w3[NN_H2 * NN_H3], w4[NN_OUT * NN_H3];
+	int32_t b1[NN_H1] = {0}, b2[NN_H2] = {0}, b3[NN_H3]= {0}, b4[NN_OUT] = {0};
+	int8_t x[NN_IN], h1[NN_H1], h2[NN_H2], h3[NN_H3], y[NN_OUT];
+	uint32_t seed = 0x12345678;
 
-		fill_rand(w1, sizeof(w1), &seed);
-		fill_rand(w2, sizeof(w2), &seed);
-		fill_rand(w3, sizeof(w3), &seed);
+	fill_rand(w1, sizeof(w1), &seed);
+	fill_rand(w2, sizeof(w2), &seed);
+	fill_rand(w3, sizeof(w3), &seed);
+	fill_rand(w4, sizeof(w4), &seed);
 
-		uint64_t class_count[NN_OUT] = {0};
-		uint64_t start_time = __dpa_thread_time();
-		uint64_t start_cycles = __dpa_thread_cycles();
+	uint64_t class_count[2] = {0};
+	uint64_t start_time = __dpa_thread_time();
+	uint64_t start_cycles = __dpa_thread_cycles();
 
-		for (int it = 0; it < NN_ITERS; it++) {
-			fill_rand(x, NN_IN, &seed);  /* new input sample each iteration */
-			dense(x, w1, b1, h1, NN_H1, NN_IN, 1);
-			dense(h1, w2, b2, h2, NN_H2, NN_H1, 1);
-			dense(h2, w3, b3, y, NN_OUT, NN_H2, 0);
-			class_count[y[1] > y[0]]++;  /* argmax */
-		}
-
-		uint64_t end_cycles = __dpa_thread_cycles();
-		uint64_t end_time = __dpa_thread_time();
-		uint64_t time = end_time - start_time;
-		uint64_t cycles = end_cycles - start_cycles;
-
-		/* logging the result keeps the compiler from optimizing the loop away */
-		DOCA_DPA_DEV_LOG_INFO("NN: %d inferences, class0=%lu class1=%lu\n", NN_ITERS, class_count[0], class_count[1]);
-		DOCA_DPA_DEV_LOG_INFO("NN: %lu ms time, %lu cycles, %lu cycles/inference\n", time/1000, cycles, cycles / NN_ITERS);
+	for (int it = 0; it < NN_ITERS; it++) {
+		fill_rand(x, NN_IN, &seed);
+		layer(x, w1, b1, h1, NN_H1, NN_IN, 1);
+		layer(h1, w2, b2, h2, NN_H2, NN_H1, 1);
+		layer(h2, w3, b3, h3, NN_H3, NN_H2, 1);
+		layer(h3, w4, b4, y, NN_OUT, NN_H3, 0);
+		class_count[y[0] > 0]++;
 	}
+
+	uint64_t end_cycles = __dpa_thread_cycles();
+	uint64_t end_time = __dpa_thread_time();
+	uint64_t time = end_time - start_time;
+	uint64_t cycles = end_cycles - start_cycles;
+
+	DOCA_DPA_DEV_LOG_INFO("NN: %d inferences, class0=%lu class1=%lu\n", NN_ITERS, class_count[0], class_count[1]);
+	DOCA_DPA_DEV_LOG_INFO("NN: %lu us time, %lu cycles, %lu cycles/inference\n", time, cycles, cycles / NN_ITERS);
+	DOCA_DPA_DEV_LOG_INFO("Number of operations (MACs): %d\n", NN_ITERS * (NN_IN * NN_H1 + NN_H1 * NN_H2 + NN_H2 * NN_H3 + NN_H3 * NN_OUT));
 }
