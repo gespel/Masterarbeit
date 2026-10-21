@@ -15,6 +15,7 @@ __dpa_global__ void calc_primes() {
 	int num_primes = 0;
 	uint64_t start_time = __dpa_thread_time();
 	uint64_t start_cycles = __dpa_thread_cycles();
+	
 	for (int iter = 0; iter < CALCULATION_ITERS; iter++) {
 		for (int num = 2; num <= MAX_PRIME; num++) {
 			int is_prime = 1;
