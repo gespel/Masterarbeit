@@ -34,7 +34,7 @@ __dpa_global__ void calc_primes() {
 			//DOCA_DPA_DEV_LOG_INFO("Iteration %d done, found %d primes\n", iter + 1, num_primes);
 			break;
 		}
-		num_primes = 0;  // Reset for the next iteration
+		num_primes = 0;
 	}
 	uint64_t end_time = __dpa_thread_time();
 	uint64_t end_cycles = __dpa_thread_cycles();
