@@ -45,9 +45,8 @@ __dpa_global__ void calc_primes() {
 }
 
 /*
- * Small quantized MLP (10 -> 16 -> 16 -> 8 -> 1), int8 weights/activations,
- * int32 accumulators. The DPA has no FPU, so everything is integer math.
- * Weights are pseudo-random (no trained model yet) - this is a compute benchmark.
+ * Small MLP (10 -> 16 -> 16 -> 8 -> 1), int8 weights/activations,
+ * int32 accumulators
  */
 #define NN_IN		10
 #define NN_H1		16

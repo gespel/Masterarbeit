@@ -77,8 +77,8 @@ int main(void) {
 
 	start = clock();
 	//DOCA_TRY(doca_dpa_kernel_launch_update_set(dpa, NULL, 0, done, 1, 1, &small_neural_network));
-	DOCA_TRY(doca_dpa_kernel_launch_update_set(dpa, NULL, 0, done, 1, 1, &calc_primes));
-	DOCA_TRY(doca_sync_event_wait_gt(done, 0, UINT64_MAX));
+	DOCA_TRY(doca_dpa_kernel_launch_update_set(dpa, NULL, 0, done, 2, 1, &calc_primes));
+	DOCA_TRY(doca_sync_event_wait_gt(done, 1, UINT64_MAX));
 	end = clock();
 	printf("kernel done\n");
 	printf("Host Execution time: %f seconds\n", (double)(end - start) / CLOCKS_PER_SEC);
