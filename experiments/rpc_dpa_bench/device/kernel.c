@@ -1,5 +1,7 @@
 #include <dpaintrin.h>
 #include <doca_dpa_dev.h>
+#include <doca_dpa_dev_sync_event.h>
+#include "../common.h"
 
 __dpa_rpc__ uint64_t hello(void) {
 	DOCA_DPA_DEV_LOG_INFO("Hello from DPA\n");
@@ -7,7 +9,7 @@ __dpa_rpc__ uint64_t hello(void) {
 }
 
 #define MAX_PRIME 10000
-#define CALCULATION_ITERS 10
+#define CALCULATION_ITERS 100
 
 __dpa_global__ void calc_primes() {
 	DOCA_DPA_DEV_LOG_INFO("Calculating primes up to %d with %d iterations\n", MAX_PRIME, CALCULATION_ITERS);
@@ -120,4 +122,56 @@ __dpa_global__ void small_neural_network(void) {
 	DOCA_DPA_DEV_LOG_INFO("NN: %d inferences, class0=%lu class1=%lu\n", NN_ITERS, class_count[0], class_count[1]);
 	DOCA_DPA_DEV_LOG_INFO("NN: %lu us time, %lu cycles, %lu cycles/inference\n", time, cycles, cycles / NN_ITERS);
 	DOCA_DPA_DEV_LOG_INFO("Number of operations (MACs): %d\n", NN_ITERS * (NN_IN * NN_H1 + NN_H1 * NN_H2 + NN_H2 * NN_H3 + NN_H3 * NN_OUT));
+}
+
+/*
+ * Same MLP as small_neural_network, one instance per DPA thread.
+ * arg points to this thread's struct nn_thread_args in DPA memory.
+ */
+__dpa_global__ void nn_thread(uint64_t arg) {
+	struct nn_thread_args *a = (struct nn_thread_args *)arg;
+	uint64_t iters = a->iters;
+
+	int8_t w1[NN_H1 * NN_IN], w2[NN_H2 * NN_H1], w3[NN_H2 * NN_H3], w4[NN_OUT * NN_H3];
+	int32_t b1[NN_H1] = {0}, b2[NN_H2] = {0}, b3[NN_H3]= {0}, b4[NN_OUT] = {0};
+	int8_t x[NN_IN], h1[NN_H1], h2[NN_H2], h3[NN_H3], y[NN_OUT];
+	uint32_t seed = a->seed;
+
+	fill_rand(w1, sizeof(w1), &seed);
+	fill_rand(w2, sizeof(w2), &seed);
+	fill_rand(w3, sizeof(w3), &seed);
+	fill_rand(w4, sizeof(w4), &seed);
+
+	uint64_t class_count[2] = {0};
+	uint64_t start_time = __dpa_thread_time();
+	uint64_t start_cycles = __dpa_thread_cycles();
+
+	for (uint64_t it = 0; it < iters; it++) {
+		fill_rand(x, NN_IN, &seed);
+		layer(x, w1, b1, h1, NN_H1, NN_IN, 1);
+		layer(h1, w2, b2, h2, NN_H2, NN_H1, 1);
+		layer(h2, w3, b3, h3, NN_H3, NN_H2, 1);
+		layer(h3, w4, b4, y, NN_OUT, NN_H3, 0);
+		class_count[y[0] > 0]++;
+	}
+
+	uint64_t end_cycles = __dpa_thread_cycles();
+	uint64_t end_time = __dpa_thread_time();
+
+	a->start_time = start_time;
+	a->end_time = end_time;
+	a->cycles = end_cycles - start_cycles;
+	a->class_count[0] = class_count[0];
+	a->class_count[1] = class_count[1];
+	/* results must be visible before the host sees the event */
+	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
+	doca_dpa_dev_sync_event_update_add(a->se, 1);
+	doca_dpa_dev_thread_reschedule();
+}
+
+/* Wake the first n pinned threads back to back */
+__dpa_rpc__ uint64_t nn_notify_threads(doca_dpa_dev_uintptr_t comps, uint64_t n) {
+	for (uint64_t i = 0; i < n; i++)
+		doca_dpa_dev_thread_notify(((doca_dpa_dev_notification_completion_t *)comps)[i]);
+	return 0;
 }
