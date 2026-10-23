@@ -32,18 +32,22 @@ int main(int argc, char **argv)
 	struct flexio_app *app;
 	struct flexio_process *proc;
 	struct flexio_app_select_attr sel = {
-		.app_name = "flexio_rpc_app", .hw_model_id = FLEXIO_HW_MODEL_DEF, .ibv_ctx = ibv,
+		.app_name = "flexio_rpc_app", 
+		.hw_model_id = FLEXIO_HW_MODEL_DEF, 
+		.ibv_ctx = ibv,
 	};
 	struct flexio_msg_stream *stream;
 	flexio_msg_stream_attr_t stream_attr = {
-		.data_bsize = 4096, .sync_mode = FLEXIO_MSG_DEV_SYNC_MODE_SYNC, .level = FLEXIO_MSG_DEV_INFO,
+		.data_bsize = 4096, 
+		.sync_mode = FLEXIO_MSG_DEV_SYNC_MODE_SYNC, 
+		.level = FLEXIO_MSG_DEV_INFO,
 	};
 	uint64_t ret;
 
 	DOCA_TRY(flexio_version_set(FLEXIO_VER_USED));
 	DOCA_TRY(flexio_app_get(&sel, &app));
 	DOCA_TRY(flexio_process_create(ibv, app, NULL, &proc));
-	/* First stream created is the default stream (id 0) used by flexio_dev_print */
+
 	DOCA_TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
 	DOCA_TRY(flexio_process_call(proc, &add, &ret, 2, 3));
