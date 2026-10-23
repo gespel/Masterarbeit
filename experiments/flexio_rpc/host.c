@@ -12,10 +12,11 @@ extern flexio_func_t add;
 
 static struct ibv_context *open_ibv(const char *name)
 {
-	struct ibv_device **list = ibv_get_device_list(NULL);
+	int num_devices;
+	struct ibv_device **list = ibv_get_device_list(&num_devices);
 	struct ibv_context *ctx = NULL;
 
-	for (int i = 0; list && list[i] && !ctx; i++) {
+	for (int i = 0; i < num_devices; i++) {
 		if (!strcmp(ibv_get_device_name(list[i]), name)) {
 			ctx = ibv_open_device(list[i]);
 		}
