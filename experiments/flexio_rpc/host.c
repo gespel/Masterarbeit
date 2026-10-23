@@ -28,7 +28,7 @@ static struct ibv_context *open_ibv(const char *name)
 
 int main(int argc, char **argv)
 {
-	struct ibv_context *ibv = open_ibv(argc > 1 ? argv[1] : "mlx5_0");
+	struct ibv_context *ibv = open_ibv("mlx5_0");
 	struct flexio_app *app;
 	struct flexio_process *proc;
 	struct flexio_app_select_attr sel = {
