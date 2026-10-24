@@ -11,10 +11,10 @@
 #define TRY(x) do { if (x) { fprintf(stderr, "%s failed\n", #x); exit(1); } } while (0)
 
 #define Q_DEPTH   (1u << LOG_Q_DEPTH)
-#define BUF_BSIZE 2048 /* RX buffer per packet */
 
 extern flexio_func_t pkt_handler;
 extern flexio_func_t get_count;
+extern flexio_func_t get_ipv4;
 
 static struct flexio_process *proc;
 
@@ -68,7 +68,9 @@ int main(int argc, char **argv)
 	/* Load the DPA program */
 	struct flexio_app *app;
 	struct flexio_app_select_attr sel = {
-		.app_name = "pkt_count_app", .hw_model_id = FLEXIO_HW_MODEL_DEF, .ibv_ctx = ibv,
+		.app_name = "pkt_count_app", 
+		.hw_model_id = FLEXIO_HW_MODEL_DEF, 
+		.ibv_ctx = ibv,
 	};
 	TRY(flexio_version_set(FLEXIO_VER_USED));
 	TRY(flexio_app_get(&sel, &app));
@@ -78,7 +80,8 @@ int main(int argc, char **argv)
 	/* Event handler: a DPA thread that runs pkt_handler on every CQ event */
 	struct flexio_event_handler *eh;
 	struct flexio_event_handler_attr eh_attr = {
-		.host_stub_func = pkt_handler, .affinity.type = FLEXIO_AFFINITY_NONE,
+		.host_stub_func = pkt_handler, 
+		.affinity.type = FLEXIO_AFFINITY_NONE,
 	};
 	TRY(flexio_event_handler_create(proc, &eh_attr, &eh));
 
@@ -86,8 +89,9 @@ int main(int argc, char **argv)
 	struct pkt_ctx ctx = {0};
 	struct mlx5_cqe64 cqes[Q_DEPTH] = {0};
 	__be32 dbr[2] = {0, 0};
-	for (uint32_t i = 0; i < Q_DEPTH; i++)
+	for (uint32_t i = 0; i < Q_DEPTH; i++) {
 		mlx5dv_set_cqe_owner(&cqes[i], 1);
+	}
 	ctx.cq_ring = to_dpa(cqes, sizeof(cqes));
 	ctx.cq_dbr = to_dpa(dbr, sizeof(dbr));
 
@@ -107,14 +111,19 @@ int main(int argc, char **argv)
 	flexio_uintptr_t bufs;
 	struct flexio_mkey *mkey;
 	TRY(flexio_buf_dev_alloc(proc, Q_DEPTH * BUF_BSIZE, &bufs));
+	ctx.rx_bufs = bufs; /* the DPA needs this to locate packet data */
 	struct flexio_mkey_attr mkey_attr = {
-		.pd = pd, .daddr = bufs, .len = Q_DEPTH * BUF_BSIZE, .access = IBV_ACCESS_LOCAL_WRITE,
+		.pd = pd, 
+		.daddr = bufs, 
+		.len = Q_DEPTH * BUF_BSIZE, 
+		.access = IBV_ACCESS_LOCAL_WRITE,
 	};
 	TRY(flexio_device_mkey_create(proc, &mkey_attr, &mkey));
 
 	struct mlx5_wqe_data_seg wqes[Q_DEPTH];
-	for (uint32_t i = 0; i < Q_DEPTH; i++)
+	for (uint32_t i = 0; i < Q_DEPTH; i++) {
 		mlx5dv_set_data_seg(&wqes[i], BUF_BSIZE, flexio_mkey_get_id(mkey), bufs + i * BUF_BSIZE);
+	}
 	ctx.rq_dbr = to_dpa(dbr, sizeof(dbr));
 
 	struct flexio_rq *rq;
@@ -135,11 +144,12 @@ int main(int argc, char **argv)
 	TRY(flexio_event_handler_run(eh, ctx_daddr));
 	printf("counting all packets on %s, Ctrl+C to stop\n", argv[1]);
 
-	uint64_t count = 0;
+	uint64_t count = 0, ipv4 = 0;
 	while(1) {
 		sleep(1);
 		TRY(flexio_process_call(proc, &get_count, &count, ctx_daddr));
-		printf("packets: %lu\n", count);
+		TRY(flexio_process_call(proc, &get_ipv4, &ipv4, ctx_daddr));
+		printf("packets: %lu (IPv4: %lu)\n", count, ipv4);
 		fflush(stdout);
 	}
 	/* never reached: on exit the kernel releases all DPA/device resources */
