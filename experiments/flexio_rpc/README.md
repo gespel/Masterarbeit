@@ -82,3 +82,11 @@ extern flexio_func_t add;
 The name of the function must match the name of the function defined in the DPA source code.
 
 The source code for the DPA should be a file called `kernel.c` and the source code for the host should be a file called `host.c`.
+
+After the application finishes, the application and process must be destroyed to free up resources:
+
+```c
+flexio_msg_stream_destroy(stream); // destroy the log stream
+flexio_process_destroy(proc); // destroy the process
+ibv_close_device(ctx); // close the Infiniband context
+```
