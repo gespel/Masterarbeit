@@ -61,6 +61,10 @@ __dpa_global__ void pkt_handler(uint64_t arg)         /* entry point, arg = DPA 
 				uint32_t dst_ip   = read_u32(ip + IP_DST);
 				uint16_t src_port = read_u16(l4 + L4_SRC_PORT);
 				uint16_t dst_port = read_u16(l4 + L4_DST_PORT);
+				flexio_dev_print("IPv4 packet: %u.%u.%u.%u:%u -> %u.%u.%u.%u:%u, proto=%u, len=%u\n",
+					(src_ip >> 24) & 0xff, (src_ip >> 16) & 0xff, (src_ip >> 8) & 0xff, src_ip & 0xff, src_port,
+					(dst_ip >> 24) & 0xff, (dst_ip >> 16) & 0xff, (dst_ip >> 8) & 0xff, dst_ip & 0xff, dst_port,
+					proto, len);
 			}
 		}
 
@@ -70,6 +74,7 @@ __dpa_global__ void pkt_handler(uint64_t arg)         /* entry point, arg = DPA 
 	}
 
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);  /* make the doorbell writes visible before arming */
+	flexio_dev_outbox_config_uar_extension(0, c->sf_dev_id); /* CQ belongs to the SF, not to the ECPF */
 	flexio_dev_cq_arm(c->cq_ci, c->cq_num);              /* request the next event for CQEs from cq_ci on */
 	flexio_dev_thread_reschedule();                      /* give the DPA core back, we are woken up by the next event */
 }

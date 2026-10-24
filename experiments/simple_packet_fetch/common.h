@@ -9,6 +9,7 @@ struct pkt_ctx {
 	uint64_t rx_bufs;                 /* DPA address of the RX buffers */
 	uint32_t cq_num;                  /* CQ number, needed to arm the CQ */
 	uint32_t cq_ci;                   /* CQ consumer index */
+	uint32_t sf_dev_id;               /* extended UAR id: points the outbox at the SF that owns the CQ */
 	uint64_t count;                   /* received packets */
 	uint64_t ipv4;                    /* received IPv4 packets */
 };
