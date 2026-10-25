@@ -25,3 +25,5 @@ Alles (Queues, Puffer, Zähler) liegt im DPA-Speicher. Die Arm-Kerne fassen das 
 | CQ / CQE | Completion Queue / Eintrag: „Paket ist angekommen“ |
 | TIR | Ziel einer Steering-Regel, verweist auf die RQ |
 | Doorbell | Zähler im Speicher, über den DPA und NIC sich gegenseitig den Fortschritt melden |
+
+Mehr zu RQ und CQ: [rq_cq.md](rq_cq.md)
