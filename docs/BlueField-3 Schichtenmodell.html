@@ -1,0 +1,427 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>BlueField-3 Schichtenmodell</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column, each layer gets one wide figure; colors mark host (green), DPA/copy (orange), Arm/OVS (violet) */
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --fg: #18202c;
+  --muted: #5a6577;
+  --line: #c3cad5;
+  --host: #0b7a69;
+  --host-bg: #e3f4f0;
+  --copy: #c24a10;
+  --copy-bg: #fbeee6;
+  --slow: #6a48b5;
+  --slow-bg: #f0ebfa;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --display: "IBM Plex Sans Condensed", "IBM Plex Sans", "Arial Narrow", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10141b; --surface: #171c25; --surface-2: #1d2430; --fg: #e2e7ef; --muted: #98a3b5; --line: #354052;
+    --host: #3cc4ab; --host-bg: #12302c; --copy: #f28c52; --copy-bg: #3a2216; --slow: #a98ff2; --slow-bg: #2a2242;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10141b; --surface: #171c25; --surface-2: #1d2430; --fg: #e2e7ef; --muted: #98a3b5; --line: #354052;
+  --host: #3cc4ab; --host-bg: #12302c; --copy: #f28c52; --copy-bg: #3a2216; --slow: #a98ff2; --slow-bg: #2a2242;
+  color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--fg); font: 400 15px/1.6 var(--sans); }
+.page {
+  max-width: 1080px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+  display: grid; gap: 52px;
+}
+header { display: grid; gap: 10px; max-width: 68ch; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 600 clamp(30px, 5vw, 44px)/1.1 var(--display); margin: 0; text-wrap: balance; }
+h2 { font: 600 24px/1.2 var(--display); margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.lead { color: var(--muted); font-size: 16px; }
+section { display: grid; gap: 14px; }
+.prose { max-width: 70ch; }
+code { font: 500 .9em var(--mono); background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 1.4px solid; flex: none; }
+.sw.host { background: var(--host-bg); border-color: var(--host); }
+.sw.copy { background: var(--copy-bg); border-color: var(--copy); }
+.sw.slow { background: var(--slow-bg); border-color: var(--slow); }
+.sw.ghost { background: transparent; border-color: var(--muted); border-style: dashed; }
+
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+figcaption { color: var(--muted); font-size: 14px; max-width: 82ch; }
+.scroll { overflow-x: auto; }
+svg.diagram { display: block; width: 100%; height: auto; min-width: 760px; }
+
+/* SVG roles */
+.bx { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+.bx-dim { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.2; }
+.bx-ghost { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.bx-host { fill: var(--host-bg); stroke: var(--host); stroke-width: 1.4; }
+.bx-copy { fill: var(--copy-bg); stroke: var(--copy); stroke-width: 1.4; }
+.bx-slow { fill: var(--slow-bg); stroke: var(--slow); stroke-width: 1.4; }
+.bnd { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 7 6; }
+.tt { fill: var(--fg); font: 600 13px var(--sans); }
+.tb { fill: var(--fg); font: 600 15px var(--sans); }
+.ts { fill: var(--muted); font: 400 11px var(--mono); }
+.tm { fill: var(--fg); font: 500 11.5px var(--mono); }
+.tn { fill: var(--muted); font: 400 11.5px var(--sans); }
+.tcap { fill: var(--muted); font: 500 11px var(--mono); letter-spacing: .06em; }
+.lb { font: 500 11.5px var(--sans); }
+.c-host { fill: var(--host); } .c-copy { fill: var(--copy); } .c-slow { fill: var(--slow); } .c-muted { fill: var(--muted); }
+.link { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+.p-wire { stroke: var(--fg); stroke-width: 2; fill: none; }
+.p-host { stroke: var(--host); stroke-width: 2.2; fill: none; }
+.p-copy { stroke: var(--copy); stroke-width: 2.2; fill: none; }
+.p-slow { stroke: var(--slow); stroke-width: 1.8; fill: none; stroke-dasharray: 6 4; }
+.p-ctl { stroke: var(--muted); stroke-width: 1.5; fill: none; stroke-dasharray: 3 3; }
+.m-wire { fill: var(--fg); } .m-host { fill: var(--host); } .m-copy { fill: var(--copy); } .m-slow { fill: var(--slow); } .m-ctl { fill: var(--muted); }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="m-wire" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-wire"/></marker>
+    <marker id="m-host" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-host"/></marker>
+    <marker id="m-copy" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-copy"/></marker>
+    <marker id="m-slow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-slow"/></marker>
+    <marker id="m-ctl" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="m-ctl"/></marker>
+  </defs>
+</svg>
+
+<main class="page">
+  <header>
+    <span class="eyebrow">B3210E · DOCA 3.4 · DPU-Modus</span>
+    <h1>BlueField-3 Schichtenmodell</h1>
+    <p class="lead">Von der Hardware über die Linux-Interfaces und die Steering-Domains bis zum DPA-Prozess. Die Namen sind die von deiner Karte, Port 0.</p>
+    <div class="legend" aria-label="Farbbedeutung">
+      <span><i class="sw host"></i>Host-Seite</span>
+      <span><i class="sw copy"></i>DPA und ihr Datenpfad</span>
+      <span><i class="sw slow"></i>Arm, OVS, Representors</span>
+      <span><i class="sw ghost"></i>nicht im Paketpfad</span>
+    </div>
+  </header>
+
+  <section aria-labelledby="h-hw">
+    <h2 id="h-hw">Hardware-Blöcke</h2>
+    <p class="prose">Arm und DPA sind zwei Rechenwerke neben dem NIC-Kern. Beide greifen nur über Funktionen auf die NIC zu. Der eSwitch verbindet diese Funktionen mit den Ports.</p>
+    <figure>
+      <div class="scroll">
+        <svg class="diagram" viewBox="0 0 1000 540" role="img" aria-label="Hardware der BlueField-3: Arm-Kerne und DPA über dem NIC-Kern. Im NIC-Kern liegen die Funktionen ECPF, SF, Host-PF und VFs, darunter der eSwitch mit der FDB, der zu den Ports p0 und p1 führt. Der x86-Host hängt per PCIe an der Host-PF.">
+          <rect class="bx-host" x="465" y="10" width="240" height="50" rx="8"/>
+          <text class="tt" x="585" y="32" text-anchor="middle">x86-Host</text>
+          <text class="ts" x="585" y="50" text-anchor="middle">10.3.10.50</text>
+
+          <rect class="bnd" x="20" y="90" width="960" height="440" rx="14"/>
+          <text class="tcap" x="36" y="114">BLUEFIELD-3</text>
+
+          <path class="p-host" d="M585,60 V292" marker-end="url(#m-host)"/>
+          <text class="lb c-host" x="593" y="110">PCIe</text>
+
+          <rect class="bx-slow" x="60" y="130" width="300" height="90" rx="8"/>
+          <text class="tt" x="210" y="168" text-anchor="middle">Arm-Kerne</text>
+          <text class="ts" x="210" y="188" text-anchor="middle">Linux · OVS · host.c</text>
+          <rect class="bx-copy" x="640" y="130" width="300" height="90" rx="8"/>
+          <text class="tt" x="790" y="168" text-anchor="middle">DPA (RISC-V)</text>
+          <text class="ts" x="790" y="188" text-anchor="middle">12 Kerne · 190 EUs sichtbar</text>
+
+          <path class="p-ctl" d="M170,220 V292" marker-end="url(#m-ctl)"/>
+          <path class="p-ctl" d="M340,220 V292" marker-end="url(#m-ctl)"/>
+          <path class="p-ctl" d="M790,220 V260" marker-end="url(#m-ctl)"/>
+          <text class="lb c-muted" x="798" y="240">gehört einer Funktion</text>
+          <text class="lb c-muted" x="798" y="254">(bei uns der ECPF)</text>
+
+          <rect class="bx-dim" x="60" y="260" width="880" height="160" rx="10"/>
+          <text class="tcap" x="924" y="282" text-anchor="end">NIC-KERN (CONNECTX-7)</text>
+          <rect class="bx-slow" x="80" y="292" width="180" height="58" rx="6"/>
+          <text class="tt" x="170" y="316" text-anchor="middle">ECPF · mlx5_0</text>
+          <text class="ts" x="170" y="334" text-anchor="middle">NIC_RX · NIC_TX · Queues</text>
+          <rect class="bx-copy" x="280" y="292" width="180" height="58" rx="6"/>
+          <text class="tt" x="370" y="316" text-anchor="middle">SF · mlx5_2</text>
+          <text class="ts" x="370" y="334" text-anchor="middle">NIC_RX · NIC_TX · Queues</text>
+          <rect class="bx-host" x="495" y="292" width="180" height="58" rx="6"/>
+          <text class="tt" x="585" y="316" text-anchor="middle">Host-PF</text>
+          <text class="ts" x="585" y="334" text-anchor="middle">NIC_RX · NIC_TX · Queues</text>
+          <rect class="bx-ghost" x="720" y="292" width="200" height="58" rx="6"/>
+          <text class="tt" x="820" y="316" text-anchor="middle">VFs (optional)</text>
+          <text class="ts" x="820" y="334" text-anchor="middle">je eigene vport</text>
+
+          <line class="link" x1="170" y1="350" x2="170" y2="366"/>
+          <line class="link" x1="370" y1="350" x2="370" y2="366"/>
+          <line class="link" x1="585" y1="350" x2="585" y2="366"/>
+          <line class="link" x1="820" y1="350" x2="820" y2="366"/>
+          <rect class="bx" x="80" y="366" width="840" height="40" rx="6"/>
+          <text class="tt" x="500" y="391" text-anchor="middle">eSwitch · FDB</text>
+
+          <line class="link" x1="370" y1="406" x2="370" y2="448"/>
+          <line class="link" x1="630" y1="406" x2="630" y2="448"/>
+          <rect class="bx" x="300" y="448" width="140" height="46" rx="6"/>
+          <text class="tt" x="370" y="468" text-anchor="middle">p0</text>
+          <text class="ts" x="370" y="485" text-anchor="middle">Port 0 · 100 Gb/s</text>
+          <rect class="bx" x="560" y="448" width="140" height="46" rx="6"/>
+          <text class="tt" x="630" y="468" text-anchor="middle">p1</text>
+          <text class="ts" x="630" y="485" text-anchor="middle">Port 1</text>
+
+          <rect class="bx-dim" x="60" y="448" width="200" height="46" rx="6"/>
+          <text class="tt" x="160" y="468" text-anchor="middle">DDR</text>
+          <text class="ts" x="160" y="485" text-anchor="middle">Arm-Speicher + DPA-Heap</text>
+          <rect class="bx-ghost" x="740" y="448" width="200" height="46" rx="6"/>
+          <text class="tt" x="840" y="468" text-anchor="middle">oob_net0 · tmfifo</text>
+          <text class="tn" x="840" y="485" text-anchor="middle">nicht über den NIC-Kern</text>
+        </svg>
+      </div>
+      <figcaption>Jede Funktion (ECPF, SF, Host-PF, VFs) hat eigene Queues und eigene Steering-Tabellen und hängt mit einer vport am eSwitch. Die DPA bekommt ihre Kerne über eine Funktion zugeteilt. Ohne eigene Partition ist das die ECPF.</figcaption>
+    </figure>
+  </section>
+
+  <section aria-labelledby="h-if">
+    <h2 id="h-if">Interface-Stack auf der Arm-Seite</h2>
+    <p class="prose">Jeder Switch-Port hat zwei Gesichter: einen Representor auf der Arm-Seite (oben) und den eigentlichen Endpunkt hinter der vport (unten). OVS arbeitet nur mit den Representors.</p>
+    <figure>
+      <div class="scroll">
+        <svg class="diagram" viewBox="0 0 1000 440" role="img" aria-label="Interface-Stack für Port 0: OVS-Bridge ovsbr1 verbindet die Representors p0, pf0hpf und en3f0pf0sf0 von mlx5_0. Jeder Representor vertritt eine eSwitch-vport, hinter der der eigentliche Endpunkt liegt: Kabel, Host-PF-Netdev auf dem x86-Host und enp3s0f0s0 der SF mlx5_2.">
+          <rect class="bx-slow" x="150" y="16" width="700" height="52" rx="8"/>
+          <text class="tt" x="500" y="39" text-anchor="middle">ovsbr1 · OVS</text>
+          <text class="tn" x="500" y="57" text-anchor="middle">Software-Bridge, schreibt Regeln per tc in die FDB</text>
+
+          <line class="link" x1="175" y1="68" x2="175" y2="118"/>
+          <line class="link" x1="385" y1="68" x2="385" y2="118"/>
+          <line class="link" x1="610" y1="68" x2="610" y2="118"/>
+          <line class="link" x1="865" y1="68" x2="865" y2="118"/>
+
+          <rect class="bx-dim" x="60" y="100" width="680" height="132" rx="10"/>
+          <rect class="bx-slow" x="80" y="118" width="190" height="60" rx="6"/>
+          <text class="tm" x="175" y="143" text-anchor="middle">p0</text>
+          <text class="tn" x="175" y="162" text-anchor="middle">Representor Uplink</text>
+          <rect class="bx-slow" x="290" y="118" width="190" height="60" rx="6"/>
+          <text class="tm" x="385" y="143" text-anchor="middle">pf0hpf</text>
+          <text class="tn" x="385" y="162" text-anchor="middle">Representor Host-PF</text>
+          <rect class="bx-slow" x="500" y="118" width="220" height="60" rx="6"/>
+          <text class="tm" x="610" y="143" text-anchor="middle">en3f0pf0sf0</text>
+          <text class="tn" x="610" y="162" text-anchor="middle">Representor SF</text>
+          <text class="ts" x="76" y="218">Netdevs von mlx5_0 · ECPF · PCI 03:00.0 · eSwitch-Manager</text>
+
+          <rect class="bx-ghost" x="770" y="118" width="190" height="60" rx="6"/>
+          <text class="tm" x="865" y="143" text-anchor="middle">ovsbr1 (intern)</text>
+          <text class="tn" x="865" y="162" text-anchor="middle">nur Kernel, keine vport</text>
+
+          <path class="p-slow" d="M175,178 V270"/>
+          <path class="p-slow" d="M385,178 V270"/>
+          <path class="p-slow" d="M610,178 V270"/>
+          <text class="lb c-slow" x="183" y="254">vertritt</text>
+
+          <rect class="bx" x="80" y="270" width="190" height="44" rx="6"/>
+          <text class="tm" x="175" y="297" text-anchor="middle">vport 0xFFFF</text>
+          <rect class="bx" x="290" y="270" width="190" height="44" rx="6"/>
+          <text class="tm" x="385" y="297" text-anchor="middle">vport 0</text>
+          <rect class="bx" x="500" y="270" width="220" height="44" rx="6"/>
+          <text class="tm" x="610" y="297" text-anchor="middle">vport der SF</text>
+          <text class="tn" x="744" y="297">eSwitch-vports</text>
+
+          <path class="p-wire" d="M175,314 V360"/>
+          <path class="p-host" d="M385,314 V360"/>
+          <path class="p-copy" d="M610,314 V360"/>
+
+          <rect class="bx" x="80" y="360" width="190" height="60" rx="6"/>
+          <text class="tt" x="175" y="386" text-anchor="middle">Kabel</text>
+          <text class="tn" x="175" y="404" text-anchor="middle">physischer Port 0</text>
+          <rect class="bx-host" x="290" y="360" width="190" height="60" rx="6"/>
+          <text class="tt" x="385" y="386" text-anchor="middle">Netdev der Host-PF</text>
+          <text class="tn" x="385" y="404" text-anchor="middle">auf dem x86-Host</text>
+          <rect class="bx-copy" x="500" y="360" width="220" height="60" rx="6"/>
+          <text class="tm" x="610" y="386" text-anchor="middle">enp3s0f0s0</text>
+          <text class="ts" x="610" y="404" text-anchor="middle">mlx5_2 · aux mlx5_core.sf.2</text>
+          <text class="tn" x="744" y="394">Endpunkte hinter der vport</text>
+        </svg>
+      </div>
+      <figcaption>Port 1 ist identisch aufgebaut: <code>ovsbr2</code>, <code>p1</code>, <code>pf1hpf</code>, <code>en3f1pf1sf0</code> auf <code>mlx5_1</code> und die SF <code>mlx5_3</code> mit <code>enp3s0f1s0</code>. Was über einen Representor läuft, ist Slow-Path über die ECPF. Was ein Endpunkt empfängt, kam direkt über die FDB.</figcaption>
+    </figure>
+  </section>
+
+  <section aria-labelledby="h-dom">
+    <h2 id="h-dom">Steering-Domains: RX und TX</h2>
+    <p class="prose">Drei Domain-Typen entscheiden über den Weg eines Pakets. Die FDB gehört dem eSwitch und lässt sich nur über den eSwitch-Manager <code>mlx5_0</code> programmieren. NIC_RX und NIC_TX hat jede Funktion für sich.</p>
+    <figure>
+      <div class="scroll">
+        <svg class="diagram" viewBox="0 0 1000 350" role="img" aria-label="RX: Kabel, FDB, über die vport in die NIC_RX der Funktion mit Root-Tabelle und Kernel-Tabellen, dann TIR, RQ und CQ. TX: SQ, TIS, NIC_TX der Funktion, über die vport in die FDB, dann zum Kabel oder zu einer anderen vport.">
+          <text class="tb" x="10" y="96">RX</text>
+          <rect class="bx" x="50" y="70" width="80" height="44" rx="6"/>
+          <text class="tt" x="90" y="97" text-anchor="middle">Kabel</text>
+          <path class="p-wire" d="M130,92 H170" marker-end="url(#m-wire)"/>
+          <rect class="bx-dim" x="170" y="60" width="120" height="64" rx="8"/>
+          <text class="tt" x="230" y="88" text-anchor="middle">FDB</text>
+          <text class="ts" x="230" y="106" text-anchor="middle">eSwitch</text>
+          <path class="p-wire" d="M290,84 H350" marker-end="url(#m-wire)"/>
+          <text class="lb c-muted" x="320" y="76" text-anchor="middle">vport</text>
+
+          <rect class="bx" x="350" y="20" width="300" height="152" rx="10"/>
+          <text class="tt" x="366" y="42">NIC_RX der Funktion</text>
+          <rect class="bx-copy" x="366" y="56" width="268" height="44" rx="6"/>
+          <text class="tt" x="500" y="75" text-anchor="middle">Root-Tabelle (nach Priorität)</text>
+          <text class="ts" x="500" y="91" text-anchor="middle">hier sitzt dein match-all</text>
+          <path class="link" d="M500,100 V116"/>
+          <rect class="bx-ghost" x="366" y="116" width="268" height="44" rx="6"/>
+          <text class="tt" x="500" y="135" text-anchor="middle">Kernel-Tabellen</text>
+          <text class="ts" x="500" y="151" text-anchor="middle">MAC-Filter · RSS</text>
+
+          <path class="p-copy" d="M634,78 H690" marker-end="url(#m-copy)"/>
+          <rect class="bx-copy" x="690" y="56" width="70" height="44" rx="6"/>
+          <text class="tt" x="725" y="83" text-anchor="middle">TIR</text>
+          <path class="p-copy" d="M760,78 H790" marker-end="url(#m-copy)"/>
+          <rect class="bx-copy" x="790" y="56" width="70" height="44" rx="6"/>
+          <text class="tt" x="825" y="83" text-anchor="middle">RQ</text>
+          <path class="p-copy" d="M860,78 H890" marker-end="url(#m-copy)"/>
+          <rect class="bx-copy" x="890" y="56" width="70" height="44" rx="6"/>
+          <text class="tt" x="925" y="83" text-anchor="middle">CQ</text>
+          <path class="link" d="M634,138 H690" marker-end="url(#m-ctl)"/>
+          <rect class="bx-ghost" x="690" y="116" width="270" height="44" rx="6"/>
+          <text class="tn" x="825" y="142" text-anchor="middle">Netdev-Queues des Treibers</text>
+
+          <line class="link" x1="10" y1="205" x2="990" y2="205" stroke-dasharray="2 6"/>
+
+          <text class="tb" x="10" y="290">TX</text>
+          <rect class="bx-copy" x="50" y="262" width="70" height="44" rx="6"/>
+          <text class="tt" x="85" y="289" text-anchor="middle">SQ</text>
+          <path class="p-wire" d="M120,284 H150" marker-end="url(#m-wire)"/>
+          <rect class="bx" x="150" y="262" width="70" height="44" rx="6"/>
+          <text class="tt" x="185" y="289" text-anchor="middle">TIS</text>
+          <path class="p-wire" d="M220,284 H260" marker-end="url(#m-wire)"/>
+          <rect class="bx" x="260" y="240" width="200" height="88" rx="10"/>
+          <text class="tt" x="360" y="278" text-anchor="middle">NIC_TX der Funktion</text>
+          <text class="tn" x="360" y="296" text-anchor="middle">Regeln der Funktion</text>
+          <path class="p-wire" d="M460,284 H540" marker-end="url(#m-wire)"/>
+          <text class="lb c-muted" x="500" y="276" text-anchor="middle">vport</text>
+          <rect class="bx-dim" x="540" y="252" width="120" height="64" rx="8"/>
+          <text class="tt" x="600" y="280" text-anchor="middle">FDB</text>
+          <text class="ts" x="600" y="298" text-anchor="middle">eSwitch</text>
+          <path class="p-wire" d="M660,272 H700 V254 H740" marker-end="url(#m-wire)"/>
+          <path class="p-wire" d="M660,296 H700 V318 H740" marker-end="url(#m-wire)"/>
+          <rect class="bx" x="740" y="232" width="130" height="44" rx="6"/>
+          <text class="tt" x="805" y="259" text-anchor="middle">Kabel</text>
+          <rect class="bx" x="740" y="296" width="130" height="44" rx="6"/>
+          <text class="tt" x="805" y="323" text-anchor="middle">andere vport</text>
+        </svg>
+      </div>
+      <figcaption>Eine Regel in der NIC_RX einer Funktion sieht nur, was die FDB an diese Funktion schickt. Die Root-Tabelle wird vor den Kernel-Tabellen ausgewertet. Deshalb fängt deine Regel auf der SF die Kopien ab, bevor der MAC-Filter sie verwirft.</figcaption>
+    </figure>
+  </section>
+
+  <section aria-labelledby="h-dpa">
+    <h2 id="h-dpa">DPA-Schicht</h2>
+    <p class="prose">Der DPA-Prozess gehört der ECPF, die Queues gehören der SF. MKey, erweiterter UAR und Outbox erlauben die Zugriffe über diese Grenze.</p>
+    <figure>
+      <div class="scroll">
+        <svg class="diagram" viewBox="0 0 1000 450" role="img" aria-label="host.c legt Objekte auf der SF und der ECPF an. Auf der SF liegen PD und MKey, TIR, RQ und CQ. Auf der ECPF liegen der DPA-Heap mit RX-Puffern und CQ-Ring sowie die Threads und das Outbox. Die NIC schreibt per DMA in die RX-Puffer, CQEs in den CQ-Ring, ein Event weckt den Thread, der über das Outbox die CQ neu armiert.">
+          <rect class="bx-slow" x="20" y="20" width="200" height="60" rx="8"/>
+          <text class="tt" x="120" y="46" text-anchor="middle">host.c (Arm)</text>
+          <text class="ts" x="120" y="64" text-anchor="middle">legt alles an (FlexIO)</text>
+          <path class="p-ctl" d="M220,50 H260" marker-end="url(#m-ctl)"/>
+          <path class="p-ctl" d="M120,80 V315 H260" marker-end="url(#m-ctl)"/>
+          <text class="lb c-muted" x="128" y="200">legt an</text>
+
+          <rect class="bx" x="260" y="20" width="720" height="120" rx="10"/>
+          <text class="tt" x="276" y="42">SF · mlx5_2</text>
+          <text class="tn" x="364" y="42">Objekte im Namensraum der SF</text>
+          <rect class="bx" x="280" y="60" width="150" height="56" rx="6"/>
+          <text class="tt" x="355" y="85" text-anchor="middle">PD + MKey</text>
+          <text class="ts" x="355" y="103" text-anchor="middle">für den DPA-Heap</text>
+          <rect class="bx-copy" x="450" y="60" width="90" height="56" rx="6"/>
+          <text class="tt" x="495" y="93" text-anchor="middle">TIR</text>
+          <path class="p-copy" d="M540,88 H560" marker-end="url(#m-copy)"/>
+          <rect class="bx-copy" x="560" y="60" width="110" height="56" rx="6"/>
+          <text class="tt" x="615" y="93" text-anchor="middle">RQ</text>
+          <rect class="bx-copy" x="700" y="60" width="110" height="56" rx="6"/>
+          <text class="tt" x="755" y="93" text-anchor="middle">CQ</text>
+
+          <path class="p-ctl" d="M355,116 V236" marker-end="url(#m-ctl)"/>
+          <text class="lb c-muted" x="363" y="180">erlaubt Zugriff</text>
+          <path class="p-copy" d="M615,116 V262" marker-end="url(#m-copy)"/>
+          <text class="lb c-copy" x="607" y="180" text-anchor="end">Paket per DMA</text>
+          <path class="p-copy" d="M755,116 V262" marker-end="url(#m-copy)"/>
+          <text class="lb c-copy" x="763" y="180">CQE</text>
+
+          <rect class="bx" x="260" y="200" width="720" height="230" rx="10"/>
+          <text class="tt" x="276" y="222">ECPF · mlx5_0</text>
+          <text class="tn" x="374" y="222">DPA-Prozess, nur die ECPF hat EUs</text>
+          <rect class="bx-dim" x="280" y="236" width="560" height="84" rx="8"/>
+          <text class="tn" x="292" y="254">DPA-Heap (DDR)</text>
+          <rect class="bx" x="300" y="262" width="130" height="44" rx="5"/>
+          <text class="tm" x="365" y="289" text-anchor="middle">pkt_ctx · DBR</text>
+          <rect class="bx-copy" x="560" y="262" width="110" height="44" rx="5"/>
+          <text class="tt" x="615" y="289" text-anchor="middle">RX-Puffer</text>
+          <rect class="bx-copy" x="700" y="262" width="110" height="44" rx="5"/>
+          <text class="tt" x="755" y="289" text-anchor="middle">CQ-Ring</text>
+
+          <path class="p-copy" d="M755,306 V326 H640 V346" marker-end="url(#m-copy)"/>
+          <text class="lb c-copy" x="698" y="340" text-anchor="middle">Event</text>
+          <rect class="bx-copy" x="560" y="346" width="140" height="60" rx="6"/>
+          <text class="tt" x="630" y="372" text-anchor="middle">Threads (EUs)</text>
+          <text class="tm" x="630" y="390" text-anchor="middle">pkt_handler</text>
+          <path class="p-ctl" d="M700,376 H800" marker-end="url(#m-ctl)"/>
+          <text class="lb c-muted" x="750" y="368" text-anchor="middle">Doorbell</text>
+          <rect class="bx" x="800" y="346" width="160" height="60" rx="6"/>
+          <text class="tt" x="880" y="372" text-anchor="middle">UAR / Outbox</text>
+          <text class="ts" x="880" y="390" text-anchor="middle">auf SF erweitert</text>
+          <path class="p-ctl" d="M930,346 V88 H810" marker-end="url(#m-ctl)"/>
+          <text class="lb c-muted" x="938" y="180">Re-Arm</text>
+        </svg>
+      </div>
+      <figcaption>Zur Laufzeit ist weder der Arm noch der Kernel beteiligt. Die NIC schreibt direkt in den DPA-Heap, und der Thread meldet über das Outbox zurück: Puffer wieder frei, CQ neu armiert. Weil die CQ-Nummer nur bei der SF gilt, muss das Outbox auf die SF zeigen.</figcaption>
+    </figure>
+  </section>
+
+  <section aria-labelledby="h-sw">
+    <h2 id="h-sw">Software-Stack</h2>
+    <p class="prose">Die Arm-Seite richtet alles über den Kernel-Treiber und die Firmware ein. Die DPA-Seite greift zur Laufzeit direkt auf Queues und Doorbells zu.</p>
+    <figure>
+      <div class="scroll">
+        <svg class="diagram" viewBox="0 0 1000 360" role="img" aria-label="Zwei Säulen: Arm-Seite mit host.c, libflexio, libibverbs und mlx5dv, Kernel-Treiber und Firmware als Steuerpfad. DPA-Seite mit kernel.c und libflexio-dev, die direkt auf Queues und Doorbells zugreift. Beide enden auf der NIC-Hardware.">
+          <text class="tcap" x="60" y="18">ARM-SEITE · STEUERPFAD (SETUP)</text>
+          <rect class="bx-slow" x="60" y="30" width="420" height="40" rx="6"/>
+          <text class="tm" x="270" y="55" text-anchor="middle">host.c</text>
+          <rect class="bx" x="60" y="80" width="420" height="40" rx="6"/>
+          <text class="tt" x="270" y="105" text-anchor="middle">libflexio (Host-API)</text>
+          <rect class="bx" x="60" y="130" width="420" height="40" rx="6"/>
+          <text class="tt" x="270" y="155" text-anchor="middle">libibverbs + mlx5dv (DR-Steering, DevX)</text>
+          <rect class="bx" x="60" y="180" width="420" height="40" rx="6"/>
+          <text class="tt" x="270" y="205" text-anchor="middle">Kernel-Treiber mlx5_core / mlx5_ib</text>
+          <rect class="bx" x="60" y="230" width="420" height="40" rx="6"/>
+          <text class="tt" x="270" y="255" text-anchor="middle">Firmware (PRM-Befehle)</text>
+
+          <text class="tcap" x="540" y="18">DPA-SEITE · DATENPFAD (LAUFZEIT)</text>
+          <rect class="bx-copy" x="540" y="30" width="400" height="40" rx="6"/>
+          <text class="tm" x="740" y="55" text-anchor="middle">kernel.c · pkt_handler</text>
+          <rect class="bx-copy" x="540" y="80" width="400" height="40" rx="6"/>
+          <text class="tt" x="740" y="105" text-anchor="middle">libflexio-dev (Device-API)</text>
+          <rect class="bx-ghost" x="540" y="130" width="400" height="140" rx="6"/>
+          <text class="tt" x="740" y="190" text-anchor="middle">direkter Zugriff</text>
+          <text class="tn" x="740" y="208" text-anchor="middle">Queues im DPA-Heap, Doorbells über das Outbox,</text>
+          <text class="tn" x="740" y="224" text-anchor="middle">kein Kernel, keine Firmware-Befehle</text>
+
+          <path class="p-ctl" d="M270,270 V300" marker-end="url(#m-ctl)"/>
+          <text class="lb c-muted" x="278" y="290">legt Objekte an</text>
+          <path class="p-copy" d="M740,270 V300" marker-end="url(#m-copy)"/>
+          <text class="lb c-copy" x="748" y="290">Pakete, Doorbells</text>
+
+          <rect class="bx-dim" x="60" y="300" width="880" height="44" rx="6"/>
+          <text class="tt" x="500" y="327" text-anchor="middle">NIC-Hardware: Queues, Steering, DMA</text>
+        </svg>
+      </div>
+      <figcaption>DOCA Flow und DOCA DPA, die Velox nutzt, liegen eine Ebene über libflexio, verbs und DPDK. Sie setzen auf dieselben Schichten auf.</figcaption>
+    </figure>
+  </section>
+</main>
+
+</body></html>
