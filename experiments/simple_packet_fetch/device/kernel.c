@@ -74,7 +74,6 @@ __dpa_global__ void pkt_handler(uint64_t arg)         /* entry point, arg = DPA 
 	}
 
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);  /* make the doorbell writes visible before arming */
-	flexio_dev_outbox_config_uar_extension(0, c->sf_dev_id); /* CQ belongs to the SF, not to the ECPF */
 	flexio_dev_cq_arm(c->cq_ci, c->cq_num);              /* request the next event for CQEs from cq_ci on */
 	flexio_dev_thread_reschedule();                      /* give the DPA core back, we are woken up by the next event */
 }

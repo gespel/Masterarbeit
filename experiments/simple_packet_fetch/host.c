@@ -59,11 +59,11 @@ static void steer_all(struct ibv_context *ibv, struct flexio_rq *rq)
 
 int main(int argc, char **argv)
 {
-	/* The DPA process lives on the ECPF (the SF has no DPA EUs), the queues live on the SF */
-	struct ibv_context *ibv = open_ibv("mlx5_0");
+	/* Process and queues all live on the SF. The SF needs its own DPA EU partition (check: dpaeumgmt partition query -d mlx5_0):
+	 * sudo dpaeumgmt partition create -d mlx5_0 --vhca_list 101 --range_eus 0-189 --max_num_eu_group 14 */
 	const char *dev = argc > 1 ? argv[1] : "mlx5_2"; /* SF that receives the OVS mirror copies */
-	struct ibv_context *sf = open_ibv(dev);
-	struct ibv_pd *pd = ibv_alloc_pd(sf); /* RQ and RX buffer MKey must belong to the SF */
+	struct ibv_context *ibv = open_ibv(dev);
+	struct ibv_pd *pd = ibv_alloc_pd(ibv);
 	TRY(!pd);
 
 	/* Load the DPA program */
@@ -77,15 +77,14 @@ int main(int argc, char **argv)
 	TRY(flexio_app_get(&sel, &app));
 	TRY(flexio_process_create(ibv, app, NULL, &proc));
 
-		struct flexio_msg_stream *stream;
-	
+	/* Forward flexio_dev_print() output to stdout */
+	struct flexio_msg_stream *stream;
 	flexio_msg_stream_attr_t stream_attr = {
 		.data_bsize = 4096, 
 		.sync_mode = FLEXIO_MSG_DEV_SYNC_MODE_SYNC, 
 		.level = FLEXIO_MSG_DEV_INFO,
 	};
-	
-	uint64_t ret;
+	TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
 	/* Event handler: a DPA thread that runs pkt_handler on every CQ event */
 	struct flexio_event_handler *eh;
@@ -105,21 +104,16 @@ int main(int argc, char **argv)
 	ctx.cq_ring = to_dpa(cqes, sizeof(cqes));
 	ctx.cq_dbr = to_dpa(dbr, sizeof(dbr));
 
-	/* The CQ lives on the SF, so the DPA must ring its doorbells (arm) through a UAR extended to the SF */
-	struct flexio_uar *sf_uar;
-	TRY(flexio_uar_extend(flexio_process_get_uar(proc), sf, &sf_uar));
-	ctx.sf_dev_id = flexio_uar_get_extended_id(sf_uar);
-
 	struct flexio_cq *cq;
 	struct flexio_cq_attr cq_attr = {
 		.log_cq_depth = LOG_Q_DEPTH,
 		.element_type = FLEXIO_CQ_ELEMENT_TYPE_DPA_THREAD,
 		.thread = flexio_event_handler_get_thread(eh),
-		.uar_id = flexio_uar_get_id(sf_uar),
+		.uar_id = flexio_uar_get_id(flexio_process_get_uar(proc)),
 		.cq_dbr_daddr = ctx.cq_dbr,
 		.cq_ring_qmem.daddr = ctx.cq_ring,
 	};
-	TRY(flexio_cq_create(proc, sf, &cq_attr, &cq));
+	TRY(flexio_cq_create(proc, ibv, &cq_attr, &cq));
 	ctx.cq_num = flexio_cq_get_cq_num(cq);
 
 	/* RQ with one pre-posted WQE per RX buffer */
@@ -148,17 +142,16 @@ int main(int argc, char **argv)
 		.wq_dbr_qmem = { .memtype = FLEXIO_MEMTYPE_DPA, .daddr = ctx.rq_dbr },
 		.wq_ring_qmem.daddr = to_dpa(wqes, sizeof(wqes)),
 	};
-	TRY(flexio_rq_create(proc, sf, ctx.cq_num, &rq_attr, &rq));
+	TRY(flexio_rq_create(proc, ibv, ctx.cq_num, &rq_attr, &rq));
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
 	TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
-	steer_all(sf, rq); /* only mirror copies arrive on the SF, so match-all is safe here */
+	steer_all(ibv, rq); /* only mirror copies arrive on the SF, so match-all is safe here */
 
 	/* Hand the context to the DPA and start; the counter is polled via RPC */
 	flexio_uintptr_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
 	TRY(flexio_event_handler_run(eh, ctx_daddr));
 	printf("counting all packets on %s, Ctrl+C to stop\n", dev);
-	TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
 	uint64_t count = 0, ipv4 = 0;
 	while(1) {
