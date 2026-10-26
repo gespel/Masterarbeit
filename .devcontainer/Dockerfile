@@ -8,3 +8,5 @@ RUN apt-get update \
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 
 RUN chsh -s "$(command -v zsh)" root
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
