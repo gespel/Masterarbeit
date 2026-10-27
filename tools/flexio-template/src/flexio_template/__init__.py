@@ -70,7 +70,7 @@ int main() {{
 	struct flexio_process *proc;
 	
 	struct flexio_app_select_attr sel = {{
-		.app_name = "flexio_rpc_app", 
+		.app_name = "{name}_app", 
 		.hw_model_id = FLEXIO_HW_MODEL_DEF, 
 		.ibv_ctx = ibv,
 	}};
