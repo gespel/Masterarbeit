@@ -80,9 +80,9 @@ __dpa_global__ void pkt_handler(uint64_t arg)         /* entry point, arg = DPA 
 		uint32_t len = flexio_dev_cqe_get_byte_cnt(cqe);              /* packet length in bytes */
 		uint8_t *pkt = (uint8_t *)(c->rx_bufs + idx * BUF_BSIZE);     /* start of the packet (Ethernet header) */
 		struct five_tuple t;
-
+		
+		uint64_t start = __dpa_thread_cycles();
 		if (parse_five_tuple(pkt, len, &t)) {
-			uint64_t start = __dpa_thread_cycles();                   /* time only the hash, not parsing or printing */
 			uint32_t hash = flow_hash(&t);
 			uint64_t cycles = __dpa_thread_cycles() - start;
 			c->hash_cycles += cycles;
