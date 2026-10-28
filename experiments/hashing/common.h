@@ -37,7 +37,7 @@ struct five_tuple {
 };
 
 /* Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.
- * Only add/xor/rotate, no multiply (mul is ~8 cycles on the DPA, rotate is a single zbb instruction). */
+  Only add/xor, no multiply */
 static inline uint32_t rol32(uint32_t w, unsigned s)
 {
 	return (w << s) | (w >> ((-s) & 31));
@@ -59,7 +59,6 @@ static inline uint32_t jhash_3words(uint32_t a, uint32_t b, uint32_t c, uint32_t
 	return c;
 }
 
-/* Both IPs and the port pair fill the three words, the protocol goes into the init value. */
 static inline uint32_t flow_hash(const struct five_tuple *t)
 {
 	return jhash_3words(t->src_ip, t->dst_ip, ((uint32_t)t->src_port << 16) | t->dst_port,

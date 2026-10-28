@@ -44,7 +44,6 @@ static struct ibv_context *open_ibv(const char *name)
 	return ctx;
 }
 
-/* Steer all incoming packets into the RQ (all-zero mask matches everything). */
 static void steer_all(struct ibv_context *ibv, struct flexio_rq *rq)
 {
 	struct mlx5dv_flow_match_parameters *match = calloc(1, sizeof(*match) + 64);
@@ -62,16 +61,11 @@ static void steer_all(struct ibv_context *ibv, struct flexio_rq *rq)
 	free(match);
 }
 
-int main(int argc, char **argv)
-{
-	/* Process and queues all live on the SF. The SF needs its own DPA EU partition (check: dpaeumgmt partition query -d mlx5_0):
-	 * sudo dpaeumgmt partition create -d mlx5_0 --vhca_list 101 --range_eus 0-189 --max_num_eu_group 14 */
-	const char *dev = argc > 1 ? argv[1] : "mlx5_2"; /* SF that receives the OVS mirror copies */
-	struct ibv_context *ibv = open_ibv(dev);
+int main(int argc, char **argv) {
+	struct ibv_context *ibv = open_ibv("mlx5_2");
 	struct ibv_pd *pd = ibv_alloc_pd(ibv);
 	TRY(!pd);
 
-	/* Load the DPA program */
 	struct flexio_app *app;
 	struct flexio_app_select_attr sel = {
 		.app_name = "hashing_app",
@@ -82,7 +76,6 @@ int main(int argc, char **argv)
 	TRY(flexio_app_get(&sel, &app));
 	TRY(flexio_process_create(ibv, app, NULL, &proc));
 
-	/* Forward flexio_dev_print() output to stdout */
 	struct flexio_msg_stream *stream;
 	flexio_msg_stream_attr_t stream_attr = {
 		.data_bsize = 4096,
@@ -91,7 +84,6 @@ int main(int argc, char **argv)
 	};
 	TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
-	/* Event handler: a DPA thread that runs pkt_handler on every CQ event */
 	struct flexio_event_handler *eh;
 	struct flexio_event_handler_attr eh_attr = {
 		.host_stub_func = pkt_handler,
@@ -99,7 +91,6 @@ int main(int argc, char **argv)
 	};
 	TRY(flexio_event_handler_create(proc, &eh_attr, &eh));
 
-	/* CQ bound to the handler thread, all CQEs start HW-owned */
 	struct pkt_ctx ctx = {0};
 	struct mlx5_cqe64 cqes[Q_DEPTH] = {0};
 	__be32 dbr[2] = {0, 0};
@@ -121,7 +112,6 @@ int main(int argc, char **argv)
 	TRY(flexio_cq_create(proc, ibv, &cq_attr, &cq));
 	ctx.cq_num = flexio_cq_get_cq_num(cq);
 
-	/* RQ with one pre-posted WQE per RX buffer */
 	flexio_uintptr_t bufs;
 	struct flexio_mkey *mkey;
 	TRY(flexio_buf_dev_alloc(proc, Q_DEPTH * BUF_BSIZE, &bufs));
@@ -152,12 +142,11 @@ int main(int argc, char **argv)
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
 	TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
-	steer_all(ibv, rq); /* only mirror copies arrive on the SF, so match-all is safe here */
+	steer_all(ibv, rq);
 
-	/* Hand the context to the DPA and start; the counters are polled via RPC */
 	flexio_uintptr_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
 	TRY(flexio_event_handler_run(eh, ctx_daddr));
-	fprintf(stderr, "hashing the 5-tuple of every IPv4 packet on %s, Ctrl+C to stop\n", dev);
+	fprintf(stderr, "hashing the 5-tuple of every IPv4 packet, Ctrl+C to stop\n");
 
 	uint64_t count = 0, hashed = 0, cycles = 0;
 	while (1) {
