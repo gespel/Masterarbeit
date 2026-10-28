@@ -136,27 +136,6 @@ __dpa_rpc__ uint64_t hash_tuple(uint64_t src_ip, uint64_t dst_ip, uint64_t ports
 	return flow_hash(&t);
 }
 
-/* Throughput benchmark: n hashes back to back on the calling thread. Every tuple depends on the
- * previous hash, so the compiler can neither hoist nor drop work. Includes the loop overhead. */
-__dpa_rpc__ uint64_t hash_bench(uint64_t res_addr, uint64_t n)
-{
-	struct bench_res *r = (struct bench_res *)res_addr;
-	struct five_tuple t = { .src_ip = 0x0a000001, .dst_ip = 0x0a000002, .src_port = 1000, .dst_port = 80, .proto = 6 };
-	uint32_t hash = 0;
-
-	uint64_t start_us = __dpa_thread_time();
-	uint64_t start = __dpa_thread_cycles();
-	for (uint64_t i = 0; i < n; i++) {
-		t.src_ip = i;
-		t.dst_ip = hash;
-		hash = flow_hash(&t);
-	}
-	r->cycles = __dpa_thread_cycles() - start;
-	r->us = __dpa_thread_time() - start_us;
-	r->sink = hash;
-	return 0;
-}
-
 __dpa_rpc__ uint64_t read_u64(uint64_t addr)          /* lets the host read back DPA heap memory */
 {
 	return *(uint64_t *)addr;

@@ -19,7 +19,6 @@ extern flexio_func_t get_count;
 extern flexio_func_t get_hashed;
 extern flexio_func_t get_hash_cycles;
 extern flexio_func_t hash_tuple;
-extern flexio_func_t hash_bench;
 extern flexio_func_t read_u64;
 
 static struct flexio_process *proc;
@@ -63,84 +62,6 @@ static void steer_all(struct ibv_context *ibv, struct flexio_rq *rq)
 	free(match);
 }
 
-/* Hash a few tuples on the DPA and on the host; both run the same flow_hash() from common.h. */
-static void self_test(void)
-{
-	const struct five_tuple tests[] = {
-		{ 0x0a000001, 0x0a000002, 12345, 80,   6  }, /* 10.0.0.1:12345 -> 10.0.0.2:80, TCP */
-		{ 0x0a000002, 0x0a000001, 80,    12345, 6 }, /* reverse direction must give a different hash */
-		{ 0xc0a80101, 0x08080808, 53000, 53,   17 }, /* 192.168.1.1 -> 8.8.8.8, UDP DNS */
-		{ 0xc0a80101, 0x08080808, 0,     0,    1  }, /* ICMP, no ports */
-	};
-
-	for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
-		const struct five_tuple *t = &tests[i];
-		uint64_t dpa;
-		uint32_t host = flow_hash(t);
-		TRY(flexio_process_call(proc, &hash_tuple, &dpa, (uint64_t)t->src_ip, (uint64_t)t->dst_ip,
-					((uint64_t)t->src_port << 16) | t->dst_port, (uint64_t)t->proto));
-		fprintf(stderr, "self-test %zu: host=0x%08x dpa=0x%08lx %s\n", i, host, dpa, host == dpa ? "ok" : "MISMATCH");
-		TRY(host != dpa);
-	}
-}
-
-/* One hash_bench() run of n hashes on the DPA, result read back via RPC. */
-static void bench_run(flexio_uintptr_t res_daddr, uint64_t n, struct bench_res *res)
-{
-	uint64_t unused;
-	TRY(flexio_process_call(proc, &hash_bench, &unused, res_daddr, n));
-	TRY(flexio_process_call(proc, &read_u64, &res->cycles, res_daddr + offsetof(struct bench_res, cycles)));
-	TRY(flexio_process_call(proc, &read_u64, &res->us, res_daddr + offsetof(struct bench_res, us)));
-}
-
-/* Max hash rate of one DPA thread: 10 runs per n from 1e3 to 1e8.
- * 1e9 (~35 s) does not work, flexio_process_call() runs into its RPC polling timeout.
- * Prints CSV to stdout. */
-static void bench(void)
-{
-	struct bench_res res = {0};
-	flexio_uintptr_t res_daddr = to_dpa(&res, sizeof(res));
-
-	printf("n,run,cycles,us\n");
-	for (uint64_t n = 1000; n <= 100000000; n *= 10) {
-		for (int run = 0; run < 10; run++) {
-			bench_run(res_daddr, n, &res);
-			printf("%lu,%d,%lu,%lu\n", n, run, res.cycles, res.us);
-			fflush(stdout);
-		}
-	}
-}
-
-/* Long-term stability: back-to-back runs of 1e7 hashes (~0.3 s each) for the given number of seconds.
- * Prints CSV to stdout, t_s = host time since start. */
-static void stability(int seconds)
-{
-	struct bench_res res = {0};
-	flexio_uintptr_t res_daddr = to_dpa(&res, sizeof(res));
-	const uint64_t n = 10000000;
-	struct timespec t0, t;
-
-	printf("t_s,n,cycles,us\n");
-	clock_gettime(CLOCK_MONOTONIC, &t0);
-	do {
-		bench_run(res_daddr, n, &res);
-		clock_gettime(CLOCK_MONOTONIC, &t);
-		printf("%.3f,%lu,%lu,%lu\n", (t.tv_sec - t0.tv_sec) + (t.tv_nsec - t0.tv_nsec) / 1e9, n, res.cycles, res.us);
-		fflush(stdout);
-	} while (t.tv_sec - t0.tv_sec < seconds);
-}
-
-/* Print the per-packet log (hash and cycles of the first n hashed packets) as CSV to stdout. */
-static void dump_log(flexio_uintptr_t log_daddr, uint64_t n)
-{
-	printf("idx,hash,cycles\n");
-	for (uint64_t i = 0; i < n && i < LOG_ENTRIES; i++) {
-		uint64_t e;
-		TRY(flexio_process_call(proc, &read_u64, &e, log_daddr + i * sizeof(uint64_t)));
-		printf("%lu,0x%08lx,%lu\n", i, e & 0xffffffff, e >> 32);
-	}
-}
-
 int main(int argc, char **argv)
 {
 	/* Process and queues all live on the SF. The SF needs its own DPA EU partition (check: dpaeumgmt partition query -d mlx5_0):
@@ -169,24 +90,6 @@ int main(int argc, char **argv)
 		.level = FLEXIO_MSG_DEV_INFO,
 	};
 	TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
-
-	/* Modes: ./hashing <dev>                 receive and hash packets until Ctrl+C
-	 *        ./hashing <dev> bench           throughput benchmark, no packets
-	 *        ./hashing <dev> stability <s>   back-to-back benchmark runs for s seconds
-	 *        ./hashing <dev> log <n>         receive until n packets are hashed, then dump the per-packet log
-	 * CSV goes to stdout, everything else to stderr. */
-	const char *mode = argc > 2 ? argv[2] : "";
-	uint64_t log_n = !strcmp(mode, "log") && argc > 3 ? strtoull(argv[3], NULL, 0) : 0;
-
-	self_test();
-	if (!strcmp(mode, "bench")) {
-		bench();
-		return 0;
-	}
-	if (!strcmp(mode, "stability")) {
-		stability(argc > 3 ? atoi(argv[3]) : 120);
-		return 0;
-	}
 
 	/* Event handler: a DPA thread that runs pkt_handler on every CQ event */
 	struct flexio_event_handler *eh;
@@ -262,12 +165,6 @@ int main(int argc, char **argv)
 		TRY(flexio_process_call(proc, &get_count, &count, ctx_daddr));
 		TRY(flexio_process_call(proc, &get_hashed, &hashed, ctx_daddr));
 		TRY(flexio_process_call(proc, &get_hash_cycles, &cycles, ctx_daddr));
-		fprintf(stderr, "packets: %lu, hashed: %lu, avg cycles/hash: %.1f\n",
-			count, hashed, hashed ? (double)cycles / hashed : 0.0);
-		if (log_n && hashed >= log_n) {
-			dump_log(ctx.pkt_log, log_n);
-			return 0;
-		}
+		fprintf(stderr, "packets: %lu, hashed: %lu, avg cycles/hash: %.1f\n", count, hashed, hashed ? (double)cycles / hashed : 0.0);
 	}
-	/* on exit the kernel releases all DPA/device resources */
 }
