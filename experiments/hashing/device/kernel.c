@@ -83,6 +83,7 @@ __dpa_global__ void pkt_handler(uint64_t arg)         /* entry point, arg = DPA 
 		
 		uint64_t start = __dpa_thread_cycles();
 		if (parse_five_tuple(pkt, len, &t)) {
+			//uint64_t start = __dpa_thread_cycles();
 			uint32_t hash = flow_hash(&t);
 			uint64_t cycles = __dpa_thread_cycles() - start;
 			c->hash_cycles += cycles;
