@@ -2,13 +2,13 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#include <stdint.h>                       /* fixed-width integer types for both sides */
+#include <stdint.h>
 
-#define LOG_Q_DEPTH 7                     /* 128 entries for RQ and CQ */
-#define BUF_BSIZE   2048                  /* RX buffer per packet, needed by host (alloc) and DPA (addressing) */
+#define LOG_Q_DEPTH 7
+#define BUF_BSIZE   2048
 
-#define HASH_SEED   0x9e3779b9u           /* arbitrary seed, change it to get an independent hash function */
-#define LOG_ENTRIES (1u << 17)            /* per-packet log in DPA memory: (cycles << 32) | hash of the first 128k hashed packets */
+#define HASH_SEED   0x9e3779b9u
+#define LOG_ENTRIES (1u << 17)
 
 struct pkt_ctx {
 	uint64_t cq_ring, cq_dbr, rq_dbr; /* DPA addresses */

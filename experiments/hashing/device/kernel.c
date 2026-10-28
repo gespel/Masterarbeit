@@ -45,21 +45,17 @@ static int parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple 
 	if (len < ETH_HDR_LEN + IP_MIN_HDR_LEN || read_u16(pkt + ETH_TYPE) != ETHERTYPE_IPV4)
 		return 0;
 
-	const uint8_t *ip = pkt + ETH_HDR_LEN;            /* IPv4 header starts right after Ethernet */
+	const uint8_t *ip = pkt + ETH_HDR_LEN;
 	uint32_t ip_hdr_len = (ip[0] & 0xf) * 4;          /* lower half of byte 0 = header length in 4-byte units */
-	const uint8_t *l4 = ip + ip_hdr_len;              /* TCP/UDP header follows the IP header */
+	const uint8_t *l4 = ip + ip_hdr_len;
 
-	t->proto    = ip[IP_PROTO];                       /* 6 = TCP, 17 = UDP */
+	t->proto    = ip[IP_PROTO];
 	t->src_ip   = read_u32(ip + IP_SRC);
 	t->dst_ip   = read_u32(ip + IP_DST);
 	t->src_port = 0;
 	t->dst_port = 0;
 
-	/* Ports only exist for TCP/UDP, only in the first fragment, and only if the L4 header was received. */
-	if ((t->proto == IPPROTO_TCP || t->proto == IPPROTO_UDP) &&
-	    !(read_u16(ip + IP_FRAG) & IP_FRAG_OFFSET) &&
-	    ip_hdr_len >= IP_MIN_HDR_LEN &&
-	    len >= ETH_HDR_LEN + ip_hdr_len + 4) {
+	if ((t->proto == IPPROTO_TCP || t->proto == IPPROTO_UDP) && !(read_u16(ip + IP_FRAG) & IP_FRAG_OFFSET) && ip_hdr_len >= IP_MIN_HDR_LEN && len >= ETH_HDR_LEN + ip_hdr_len + 4) {
 		t->src_port = read_u16(l4 + L4_SRC_PORT);
 		t->dst_port = read_u16(l4 + L4_DST_PORT);
 	}
@@ -67,14 +63,13 @@ static int parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple 
 }
 
 /* Runs whenever a CQE lands on the armed RQ CQ. */
-flexio_dev_event_handler_t pkt_handler;               /* declaration with the type the FlexIO tooling expects */
-__dpa_global__ void pkt_handler(uint64_t arg)         /* entry point, arg = DPA address passed to flexio_event_handler_run() */
-{
-	struct pkt_ctx *c = (struct pkt_ctx *)arg;                            /* our state in DPA heap memory */
+flexio_dev_event_handler_t pkt_handler;
+__dpa_global__ void pkt_handler(uint64_t arg) {
+	struct pkt_ctx *c = (struct pkt_ctx *)arg;
 	struct flexio_dev_cqe64 *ring = (struct flexio_dev_cqe64 *)c->cq_ring; /* CQ ring: Q_DEPTH CQEs of 64 bytes */
 
 	/* A CQE is new if its owner bit matches the current wrap-around parity. */
-	while (flexio_dev_cqe_get_owner(&ring[c->cq_ci & Q_MASK]) == ((c->cq_ci >> LOG_Q_DEPTH) & 1)) { /* one iteration = one packet */
+	while (flexio_dev_cqe_get_owner(&ring[c->cq_ci & Q_MASK]) == ((c->cq_ci >> LOG_Q_DEPTH) & 1)) {
 		struct flexio_dev_cqe64 *cqe = &ring[c->cq_ci & Q_MASK];      /* the CQE we are processing now */
 		uint32_t idx = flexio_dev_cqe_get_wqe_counter(cqe) & Q_MASK;  /* which RQ entry (= RX buffer) the NIC filled */
 		uint32_t len = flexio_dev_cqe_get_byte_cnt(cqe);              /* packet length in bytes */
@@ -121,19 +116,6 @@ __dpa_rpc__ uint64_t get_hashed(uint64_t arg)
 __dpa_rpc__ uint64_t get_hash_cycles(uint64_t arg)
 {
 	return ((struct pkt_ctx *)arg)->hash_cycles;
-}
-
-/* Self-test: hash a tuple given by the host, so the host can compare against its own flow_hash(). */
-__dpa_rpc__ uint64_t hash_tuple(uint64_t src_ip, uint64_t dst_ip, uint64_t ports, uint64_t proto)
-{
-	struct five_tuple t = {
-		.src_ip = src_ip,
-		.dst_ip = dst_ip,
-		.src_port = ports >> 16,
-		.dst_port = ports & 0xffff,
-		.proto = proto,
-	};
-	return flow_hash(&t);
 }
 
 __dpa_rpc__ uint64_t read_u64(uint64_t addr)          /* lets the host read back DPA heap memory */
