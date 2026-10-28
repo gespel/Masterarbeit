@@ -5,44 +5,19 @@
 #include <dpaintrin.h>
 #include "../common.h"
 
-#define Q_MASK ((1u << LOG_Q_DEPTH) - 1)
-
-#define ETH_HDR_LEN    14
-#define ETH_TYPE       12
-#define ETHERTYPE_IPV4 0x0800
-
-#define IP_MIN_HDR_LEN 20
-#define IP_FRAG        6
-#define IP_PROTO       9
-#define IP_SRC         12
-#define IP_DST         16
-#define IP_FRAG_OFFSET 0x1fff
-
-#define IPPROTO_TCP    6
-#define IPPROTO_UDP    17
-
-#define L4_SRC_PORT    0
-#define L4_DST_PORT    2
-
-static inline uint16_t read_u16(const uint8_t *p)
-{
+static inline uint16_t read_u16(const uint8_t *p) {
 	uint16_t v;
 	__builtin_memcpy(&v, p, sizeof(v));
 	return be16_to_cpu(v);
 }
 
-static inline uint32_t read_u32(const uint8_t *p)
-{
+static inline uint32_t read_u32(const uint8_t *p) {
 	uint32_t v;
 	__builtin_memcpy(&v, p, sizeof(v));
 	return be32_to_cpu(v);
 }
 
-static int parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple *t)
-{
-	if (len < ETH_HDR_LEN + IP_MIN_HDR_LEN || read_u16(pkt + ETH_TYPE) != ETHERTYPE_IPV4)
-		return 0;
-
+static int parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple *t) {
 	const uint8_t *ip = pkt + ETH_HDR_LEN;
 	uint32_t ip_hdr_len = (ip[0] & 0xf) * 4;
 	const uint8_t *l4 = ip + ip_hdr_len;
@@ -77,10 +52,14 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			//uint64_t start = __dpa_thread_cycles();
 			uint32_t hash = flow_hash(&t);
 			uint64_t cycles = __dpa_thread_cycles() - start;
+			/*flexio_dev_print("hash=0x%08x, src=%u.%u.%u.%u:%u, dst=%u.%u.%u.%u:%u, proto=%u\n",
+				hash,
+				(t.src_ip >> 24) & 0xff, (t.src_ip >> 16) & 0xff, (t.src_ip >> 8) & 0xff, t.src_ip & 0xff, t.src_port,
+				(t.dst_ip >> 24) & 0xff, (t.dst_ip >> 16) & 0xff, (t.dst_ip >> 8) & 0xff, t.dst_ip & 0xff, t.dst_port,
+				t.proto);*/
+
 			c->hash_cycles += cycles;
 			c->last_hash = hash;
-			if (c->hashed < LOG_ENTRIES)
-				((uint64_t *)c->pkt_log)[c->hashed] = (cycles << 32) | hash;
 			c->hashed++;
 
 			/*flexio_dev_print("%u.%u.%u.%u:%u -> %u.%u.%u.%u:%u, proto=%u, len=%u, hash=0x%08x, cycles=%lu\n",
@@ -99,22 +78,18 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 	flexio_dev_thread_reschedule();
 }
 
-__dpa_rpc__ uint64_t get_count(uint64_t arg)
-{
+__dpa_rpc__ uint64_t get_count(uint64_t arg) {
 	return ((struct pkt_ctx *)arg)->count;
 }
 
-__dpa_rpc__ uint64_t get_hashed(uint64_t arg)
-{
+__dpa_rpc__ uint64_t get_hashed(uint64_t arg) {
 	return ((struct pkt_ctx *)arg)->hashed;
 }
 
-__dpa_rpc__ uint64_t get_hash_cycles(uint64_t arg)
-{
+__dpa_rpc__ uint64_t get_hash_cycles(uint64_t arg) {
 	return ((struct pkt_ctx *)arg)->hash_cycles;
 }
 
-__dpa_rpc__ uint64_t read_u64(uint64_t addr)
-{
+__dpa_rpc__ uint64_t read_u64(uint64_t addr) {
 	return *(uint64_t *)addr;
 }

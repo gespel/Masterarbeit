@@ -10,7 +10,7 @@
 #include <libflexio/flexio.h>
 #include "common.h"
 
-#define TRY(x) do { if (x) { fprintf(stderr, "%s failed\n", #x); exit(1); } } while (0)
+#define DOCA_TRY(x) do { if (x) { fprintf(stderr, "%s failed\n", #x); exit(1); } } while (0)
 
 #define Q_DEPTH   (1u << LOG_Q_DEPTH)
 
@@ -27,7 +27,7 @@ static struct flexio_process *proc;
 static flexio_uintptr_t to_dpa(void *src, size_t len)
 {
 	flexio_uintptr_t daddr;
-	TRY(flexio_copy_from_host(proc, src, len, &daddr));
+	DOCA_TRY(flexio_copy_from_host(proc, src, len, &daddr));
 	return daddr;
 }
 
@@ -40,7 +40,7 @@ static struct ibv_context *open_ibv(const char *name)
 		if (!strcmp(ibv_get_device_name(list[i]), name))
 			ctx = ibv_open_device(list[i]);
 	ibv_free_device_list(list);
-	TRY(!ctx);
+	DOCA_TRY(!ctx);
 	return ctx;
 }
 
@@ -50,21 +50,21 @@ static void steer_all(struct ibv_context *ibv, struct flexio_rq *rq)
 	match->match_sz = 64;
 
 	struct mlx5dv_dr_domain *dom = mlx5dv_dr_domain_create(ibv, MLX5DV_DR_DOMAIN_TYPE_NIC_RX);
-	TRY(!dom);
+	DOCA_TRY(!dom);
 	struct mlx5dv_dr_table *tbl = mlx5dv_dr_table_create(dom, 0);
-	TRY(!tbl);
+	DOCA_TRY(!tbl);
 	struct mlx5dv_dr_matcher *matcher = mlx5dv_dr_matcher_create(tbl, 0, 0, match);
-	TRY(!matcher);
+	DOCA_TRY(!matcher);
 	struct mlx5dv_dr_action *to_rq = mlx5dv_dr_action_create_dest_devx_tir(flexio_rq_get_tir(rq));
-	TRY(!to_rq);
-	TRY(!mlx5dv_dr_rule_create(matcher, match, 1, &to_rq));
+	DOCA_TRY(!to_rq);
+	DOCA_TRY(!mlx5dv_dr_rule_create(matcher, match, 1, &to_rq));
 	free(match);
 }
 
 int main(int argc, char **argv) {
 	struct ibv_context *ibv = open_ibv("mlx5_2");
 	struct ibv_pd *pd = ibv_alloc_pd(ibv);
-	TRY(!pd);
+	DOCA_TRY(!pd);
 
 	struct flexio_app *app;
 	struct flexio_app_select_attr sel = {
@@ -72,9 +72,9 @@ int main(int argc, char **argv) {
 		.hw_model_id = FLEXIO_HW_MODEL_DEF,
 		.ibv_ctx = ibv,
 	};
-	TRY(flexio_version_set(FLEXIO_VER_USED));
-	TRY(flexio_app_get(&sel, &app));
-	TRY(flexio_process_create(ibv, app, NULL, &proc));
+	DOCA_TRY(flexio_version_set(FLEXIO_VER_USED));
+	DOCA_TRY(flexio_app_get(&sel, &app));
+	DOCA_TRY(flexio_process_create(ibv, app, NULL, &proc));
 
 	struct flexio_msg_stream *stream;
 	flexio_msg_stream_attr_t stream_attr = {
@@ -82,14 +82,14 @@ int main(int argc, char **argv) {
 		.sync_mode = FLEXIO_MSG_DEV_SYNC_MODE_SYNC,
 		.level = FLEXIO_MSG_DEV_INFO,
 	};
-	TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
+	DOCA_TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
 	struct flexio_event_handler *eh;
 	struct flexio_event_handler_attr eh_attr = {
 		.host_stub_func = pkt_handler,
 		.affinity.type = FLEXIO_AFFINITY_NONE,
 	};
-	TRY(flexio_event_handler_create(proc, &eh_attr, &eh));
+	DOCA_TRY(flexio_event_handler_create(proc, &eh_attr, &eh));
 
 	struct pkt_ctx ctx = {0};
 	struct mlx5_cqe64 cqes[Q_DEPTH] = {0};
@@ -109,21 +109,20 @@ int main(int argc, char **argv) {
 		.cq_dbr_daddr = ctx.cq_dbr,
 		.cq_ring_qmem.daddr = ctx.cq_ring,
 	};
-	TRY(flexio_cq_create(proc, ibv, &cq_attr, &cq));
+	DOCA_TRY(flexio_cq_create(proc, ibv, &cq_attr, &cq));
 	ctx.cq_num = flexio_cq_get_cq_num(cq);
 
 	flexio_uintptr_t bufs;
 	struct flexio_mkey *mkey;
-	TRY(flexio_buf_dev_alloc(proc, Q_DEPTH * BUF_BSIZE, &bufs));
+	DOCA_TRY(flexio_buf_dev_alloc(proc, Q_DEPTH * BUF_BSIZE, &bufs));
 	ctx.rx_bufs = bufs; /* the DPA needs this to locate packet data */
-	TRY(flexio_buf_dev_alloc(proc, LOG_ENTRIES * sizeof(uint64_t), &ctx.pkt_log));
 	struct flexio_mkey_attr mkey_attr = {
 		.pd = pd,
 		.daddr = bufs,
 		.len = Q_DEPTH * BUF_BSIZE,
 		.access = IBV_ACCESS_LOCAL_WRITE,
 	};
-	TRY(flexio_device_mkey_create(proc, &mkey_attr, &mkey));
+	DOCA_TRY(flexio_device_mkey_create(proc, &mkey_attr, &mkey));
 
 	struct mlx5_wqe_data_seg wqes[Q_DEPTH];
 	for (uint32_t i = 0; i < Q_DEPTH; i++) {
@@ -138,22 +137,22 @@ int main(int argc, char **argv) {
 		.wq_dbr_qmem = { .memtype = FLEXIO_MEMTYPE_DPA, .daddr = ctx.rq_dbr },
 		.wq_ring_qmem.daddr = to_dpa(wqes, sizeof(wqes)),
 	};
-	TRY(flexio_rq_create(proc, ibv, ctx.cq_num, &rq_attr, &rq));
+	DOCA_TRY(flexio_rq_create(proc, ibv, ctx.cq_num, &rq_attr, &rq));
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
-	TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
+	DOCA_TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
 	steer_all(ibv, rq);
 
 	flexio_uintptr_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
-	TRY(flexio_event_handler_run(eh, ctx_daddr));
+	DOCA_TRY(flexio_event_handler_run(eh, ctx_daddr));
 	fprintf(stderr, "hashing the 5-tuple of every IPv4 packet, Ctrl+C to stop\n");
 
 	uint64_t count = 0, hashed = 0, cycles = 0;
 	while (1) {
 		sleep(1);
-		TRY(flexio_process_call(proc, &get_count, &count, ctx_daddr));
-		TRY(flexio_process_call(proc, &get_hashed, &hashed, ctx_daddr));
-		TRY(flexio_process_call(proc, &get_hash_cycles, &cycles, ctx_daddr));
+		DOCA_TRY(flexio_process_call(proc, &get_count, &count, ctx_daddr));
+		DOCA_TRY(flexio_process_call(proc, &get_hashed, &hashed, ctx_daddr));
+		DOCA_TRY(flexio_process_call(proc, &get_hash_cycles, &cycles, ctx_daddr));
 		fprintf(stderr, "packets: %lu, hashed: %lu, avg cycles/hash: %.1f\n", count, hashed, hashed ? (double)cycles / hashed : 0.0);
 	}
 }

@@ -6,7 +6,20 @@
 
 #define LOG_Q_DEPTH 7
 #define BUF_BSIZE   2048
-
+#define Q_MASK ((1u << LOG_Q_DEPTH) - 1)
+#define ETH_HDR_LEN    14
+#define ETH_TYPE       12
+#define ETHERTYPE_IPV4 0x0800
+#define IP_MIN_HDR_LEN 20
+#define IP_FRAG        6
+#define IP_PROTO       9
+#define IP_SRC         12
+#define IP_DST         16
+#define IP_FRAG_OFFSET 0x1fff
+#define IPPROTO_TCP    6
+#define IPPROTO_UDP    17
+#define L4_SRC_PORT    0
+#define L4_DST_PORT    2
 #define HASH_SEED   0x9e3779b9u
 #define LOG_ENTRIES (1u << 17)
 
@@ -19,25 +32,15 @@ struct pkt_ctx {
 	uint64_t hashed;                  /* packets with a 5-tuple that were hashed (IPv4) */
 	uint64_t hash_cycles;             /* DPA cycles spent inside flow_hash(), summed over all hashed packets */
 	uint32_t last_hash;               /* hash of the most recent packet */
-	uint64_t pkt_log;                 /* DPA address of the per-packet log, LOG_ENTRIES x uint64_t */
 };
 
-/* Result of one hash_bench() run, written by the DPA into DPA heap memory. */
-struct bench_res {
-	uint64_t cycles;                  /* DPA cycles for all n hashes */
-	uint64_t us;                      /* wall time for all n hashes (__dpa_thread_time() ticks at 1 MHz) */
-	uint64_t sink;                    /* last hash, keeps the compiler from dropping the loop */
-};
-
-/* 5-tuple in host byte order; ports are 0 for non-TCP/UDP packets and non-first fragments. */
 struct five_tuple {
 	uint32_t src_ip, dst_ip;
 	uint16_t src_port, dst_port;
 	uint8_t  proto;
 };
 
-/* Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.
-  Only add/xor, no multiply */
+// Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.
 static inline uint32_t rol32(uint32_t w, unsigned s)
 {
 	return (w << s) | (w >> ((-s) & 31));
@@ -59,10 +62,8 @@ static inline uint32_t jhash_3words(uint32_t a, uint32_t b, uint32_t c, uint32_t
 	return c;
 }
 
-static inline uint32_t flow_hash(const struct five_tuple *t)
-{
-	return jhash_3words(t->src_ip, t->dst_ip, ((uint32_t)t->src_port << 16) | t->dst_port,
-			    HASH_SEED ^ t->proto);
+static inline uint32_t flow_hash(const struct five_tuple *t) {
+	return jhash_3words(t->src_ip, t->dst_ip, ((uint32_t)t->src_port << 16) | t->dst_port, HASH_SEED ^ t->proto);
 }
 
 #endif /* COMMON_H */
