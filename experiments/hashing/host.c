@@ -20,6 +20,7 @@ extern flexio_func_t get_hashed;
 extern flexio_func_t get_hash_cycles;
 extern flexio_func_t hash_tuple;
 extern flexio_func_t read_u64;
+extern flexio_func_t dump_flows;
 
 static struct flexio_process *proc;
 
@@ -141,18 +142,27 @@ int main(int argc, char **argv) {
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
 	DOCA_TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
+	size_t flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct five_tuple);
+	DOCA_TRY(flexio_buf_dev_alloc(proc, flows_bsize, &ctx.flows));
+	DOCA_TRY(flexio_buf_dev_memset(proc, 0, flows_bsize, ctx.flows));
+	struct flexio_heap_mem_info heap;
+	DOCA_TRY(flexio_process_mem_info_get(proc, &heap));
+	fprintf(stderr, "flow table: %zu MB, heap: size %zu MB, requested %zu MB, allocated %zu MB\n",
+		flows_bsize >> 20, heap.size >> 20, heap.requested >> 20, heap.allocated >> 20);
+
 	steer_all(ibv, rq);
 
 	flexio_uintptr_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
 	DOCA_TRY(flexio_event_handler_run(eh, ctx_daddr));
 	fprintf(stderr, "hashing the 5-tuple of every IPv4 packet, Ctrl+C to stop\n");
 
-	uint64_t count = 0, hashed = 0, cycles = 0;
+	uint64_t count = 0, hashed = 0, cycles = 0, num_flows = 0;
 	while (1) {
 		sleep(1);
 		DOCA_TRY(flexio_process_call(proc, &get_count, &count, ctx_daddr));
 		DOCA_TRY(flexio_process_call(proc, &get_hashed, &hashed, ctx_daddr));
 		DOCA_TRY(flexio_process_call(proc, &get_hash_cycles, &cycles, ctx_daddr));
-		fprintf(stderr, "packets: %lu, hashed: %lu, avg cycles/hash: %.1f\n", count, hashed, hashed ? (double)cycles / hashed : 0.0);
+		DOCA_TRY(flexio_process_call(proc, &dump_flows, &num_flows, ctx_daddr));
+		fprintf(stderr, "packets: %lu, hashed: %lu, avg cycles/hash: %.1f, num_flows: %lu\n", count, hashed, hashed ? (double)cycles / hashed : 0.0, num_flows);
 	}
 }

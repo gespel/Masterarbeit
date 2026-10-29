@@ -21,7 +21,8 @@
 #define L4_SRC_PORT    0
 #define L4_DST_PORT    2
 #define HASH_SEED   0x9e3779b9u
-#define LOG_ENTRIES (1u << 17)
+#define LOG_FLOW_ENTRIES 16
+#define FLOW_MASK ((1u << LOG_FLOW_ENTRIES) - 1)
 
 struct pkt_ctx {
 	uint64_t cq_ring, cq_dbr, rq_dbr; /* DPA addresses */
@@ -32,6 +33,8 @@ struct pkt_ctx {
 	uint64_t hashed;                  /* packets with a 5-tuple that were hashed (IPv4) */
 	uint64_t hash_cycles;             /* DPA cycles spent inside flow_hash(), summed over all hashed packets */
 	uint32_t last_hash;               /* hash of the most recent packet */
+	uint64_t flows;                   /* DPA address of the flow table, indexed by hash & FLOW_MASK */
+	uint64_t num_flows;
 };
 
 struct five_tuple {

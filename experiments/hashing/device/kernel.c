@@ -51,6 +51,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 		if (parse_five_tuple(pkt, len, &t)) {
 			//uint64_t start = __dpa_thread_cycles();
 			uint32_t hash = flow_hash(&t);
+			((struct five_tuple *)c->flows)[hash & FLOW_MASK] = t;
 			uint64_t cycles = __dpa_thread_cycles() - start;
 			/*flexio_dev_print("hash=0x%08x, src=%u.%u.%u.%u:%u, dst=%u.%u.%u.%u:%u, proto=%u\n",
 				hash,
@@ -92,4 +93,23 @@ __dpa_rpc__ uint64_t get_hash_cycles(uint64_t arg) {
 
 __dpa_rpc__ uint64_t read_u64(uint64_t addr) {
 	return *(uint64_t *)addr;
+}
+
+__dpa_rpc__ uint64_t dump_flows(uint64_t arg) {
+	struct pkt_ctx *c = (struct pkt_ctx *)arg;
+	struct five_tuple *flows = (struct five_tuple *)c->flows;
+	uint64_t num_flows = 0;
+
+	for (uint32_t i = 0; i < (1u << LOG_FLOW_ENTRIES); i++) {
+		if (flows[i].proto != 0) {
+			/*flexio_dev_print("flow[%u]: %u.%u.%u.%u:%u -> %u.%u.%u.%u:%u, proto=%u\n",
+				i,
+				(flows[i].src_ip >> 24) & 0xff, (flows[i].src_ip >> 16) & 0xff, (flows[i].src_ip >> 8) & 0xff, flows[i].src_ip & 0xff, flows[i].src_port,
+				(flows[i].dst_ip >> 24) & 0xff, (flows[i].dst_ip >> 16) & 0xff, (flows[i].dst_ip >> 8) & 0xff, flows[i].dst_ip & 0xff, flows[i].dst_port,
+				flows[i].proto);*/
+			num_flows++;
+		}
+	}
+	c->num_flows = num_flows;
+	return num_flows;
 }
