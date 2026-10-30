@@ -111,5 +111,6 @@ __dpa_rpc__ uint64_t dump_flows(uint64_t arg) {
 		}
 	}
 	c->num_flows = num_flows;
+	flexio_dev_print("flow table usage: %lu/%u (%lu%%)\n", num_flows, (1u << LOG_FLOW_ENTRIES), (num_flows * 100) / (1u << LOG_FLOW_ENTRIES));
 	return num_flows;
 }
