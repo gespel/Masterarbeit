@@ -37,15 +37,15 @@ struct pkt_ctx {
 	uint64_t num_flows;
 };
 
-struct flow {
-	struct five_tuple *t;
-	uint32_t hash;
-};
-
 struct five_tuple {
 	uint32_t src_ip, dst_ip;
 	uint16_t src_port, dst_port;
 	uint8_t  proto;
+};
+
+struct flow {
+	struct five_tuple t;
+	uint32_t hash;
 };
 
 // Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.

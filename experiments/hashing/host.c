@@ -163,6 +163,8 @@ int main(int argc, char **argv) {
 		DOCA_TRY(flexio_process_call(proc, &get_hashed, &hashed, ctx_daddr));
 		DOCA_TRY(flexio_process_call(proc, &get_hash_cycles, &cycles, ctx_daddr));
 		DOCA_TRY(flexio_process_call(proc, &dump_flows, &num_flows, ctx_daddr));
-		fprintf(stderr, "packets: %lu, hashed: %lu, avg cycles/hash: %.1f, num_flows: %lu\n", count, hashed, hashed ? (double)cycles / hashed : 0.0, num_flows);
+		printf("packets: %lu, hashed: %lu, avg cycles/hash: %.1f, num_flows: %lu\n", count, hashed, hashed ? (double)cycles / hashed : 0.0, num_flows);
+		printf("flow table usage: %lu/%u (%lu%%)\n", num_flows, (1u << LOG_FLOW_ENTRIES), (num_flows * 100) / (1u << LOG_FLOW_ENTRIES));
+
 	}
 }
