@@ -38,7 +38,7 @@ struct pkt_ctx {
 };
 
 struct flow {
-	struct five_tuple t;
+	struct five_tuple *t;
 	uint32_t hash;
 };
 

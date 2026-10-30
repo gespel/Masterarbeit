@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
 	DOCA_TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
-	size_t flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct five_tuple);
+	size_t flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct flow);
 	DOCA_TRY(flexio_buf_dev_alloc(proc, flows_bsize, &ctx.flows));
 	DOCA_TRY(flexio_buf_dev_memset(proc, 0, flows_bsize, ctx.flows));
 	struct flexio_heap_mem_info heap;

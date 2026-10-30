@@ -51,7 +51,11 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 		if (parse_five_tuple(pkt, len, &t)) {
 			//uint64_t start = __dpa_thread_cycles();
 			uint32_t hash = flow_hash(&t);
-			((struct five_tuple *)c->flows)[hash & FLOW_MASK] = t;
+			struct flow *f = (struct flow *)(c->flows + (hash & FLOW_MASK) * sizeof(struct flow));
+			f->t = &t;
+			f->hash = hash;
+
+			((struct flow *)c->flows)[hash & FLOW_MASK] = *f;
 			uint64_t cycles = __dpa_thread_cycles() - start;
 			/*flexio_dev_print("hash=0x%08x, src=%u.%u.%u.%u:%u, dst=%u.%u.%u.%u:%u, proto=%u\n",
 				hash,
