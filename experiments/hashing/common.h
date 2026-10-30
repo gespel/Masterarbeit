@@ -21,7 +21,7 @@
 #define L4_SRC_PORT    0
 #define L4_DST_PORT    2
 #define HASH_SEED   0x9e3779b9u
-#define LOG_FLOW_ENTRIES 16
+#define LOG_FLOW_ENTRIES 25
 #define FLOW_MASK ((1u << LOG_FLOW_ENTRIES) - 1)
 
 struct pkt_ctx {
