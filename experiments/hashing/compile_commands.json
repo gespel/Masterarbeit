@@ -1,0 +1,4 @@
+[
+{"directory":"/home/ubuntu/Sten/Masterarbeit/experiments/hashing","file":"device/kernel.c","command":"clang --target=riscv64 -ffreestanding -mcmodel=medany -undef -include /home/ubuntu/Sten/Masterarbeit/experiments/rpc_dpa_bench/.dpa_predef.h -DDOCA_ALLOW_EXPERIMENTAL_API -I/opt/mellanox/doca/include -isystem /opt/mellanox/flexio/include -isystem /opt/mellanox/doca/lib/aarch64-linux-gnu/dpa_llvm/lib/clang/21/include -c device/kernel.c"},
+{"directory":"/home/ubuntu/Sten/Masterarbeit/experiments/hashing","file":"host.c","command":"gcc -DDOCA_ALLOW_EXPERIMENTAL_API -I/opt/mellanox/doca/include -I/usr/include/libnl3 -I/opt/mellanox/flexio/include -DALLOW_EXPERIMENTAL_API -DFLEXIO_ALLOW_EXPERIMENTAL_API  -c host.c"}
+]
