@@ -21,8 +21,15 @@
 #define L4_SRC_PORT    0
 #define L4_DST_PORT    2
 #define HASH_SEED   0x9e3779b9u
-#define LOG_FLOW_ENTRIES 25
+#define LOG_FLOW_ENTRIES 16
 #define FLOW_MASK ((1u << LOG_FLOW_ENTRIES) - 1)
+
+enum FlowState {
+	NEW_FLOW,
+	MALICOUS_FLOW,
+	BENIGN_FLOW,
+	STALE_FLOW
+};
 
 struct pkt_ctx {
 	uint64_t cq_ring, cq_dbr, rq_dbr; /* DPA addresses */
@@ -46,6 +53,7 @@ struct five_tuple {
 struct flow {
 	struct five_tuple t;
 	uint32_t hash;
+	uint8_t state;
 };
 
 // Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.

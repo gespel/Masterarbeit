@@ -52,8 +52,13 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			//uint64_t start = __dpa_thread_cycles();
 			uint32_t hash = flow_hash(&t);
 			struct flow *f = (struct flow *)(c->flows + (hash & FLOW_MASK) * sizeof(struct flow));
+
+			if (f->t.proto != 0) {
+				flexio_dev_print("Collision detected for hash=0x%08x!\n", hash);
+			}
 			f->t = t;
 			f->hash = hash;
+			f->state = NEW_FLOW;
 			uint64_t cycles = __dpa_thread_cycles() - start;
 			/*flexio_dev_print("hash=0x%08x, src=%u.%u.%u.%u:%u, dst=%u.%u.%u.%u:%u, proto=%u\n",
 				hash,

@@ -156,15 +156,19 @@ int main(int argc, char **argv) {
 	DOCA_TRY(flexio_event_handler_run(eh, ctx_daddr));
 	fprintf(stderr, "hashing the 5-tuple of every IPv4 packet, Ctrl+C to stop\n");
 
-	uint64_t count = 0, hashed = 0, cycles = 0, num_flows = 0;
+	uint64_t count = 0;
+	uint64_t hashed = 0;
+	uint64_t cycles = 0;
+	uint64_t num_flows = 0;
+	uint64_t last_count = 0;
 	while (1) {
 		sleep(1);
 		DOCA_TRY(flexio_process_call(proc, &get_count, &count, ctx_daddr));
 		DOCA_TRY(flexio_process_call(proc, &get_hashed, &hashed, ctx_daddr));
 		DOCA_TRY(flexio_process_call(proc, &get_hash_cycles, &cycles, ctx_daddr));
 		DOCA_TRY(flexio_process_call(proc, &dump_flows, &num_flows, ctx_daddr));
-		printf("packets: %lu, hashed: %lu, avg cycles/hash: %.1f, num_flows: %lu\n", count, hashed, hashed ? (double)cycles / hashed : 0.0, num_flows);
+		printf("packets: %lu (+ %lu new), hashed: %lu, avg cycles/hash: %.1f, num_flows: %lu\n", count, count - last_count, hashed, hashed ? (double)cycles / hashed : 0.0, num_flows);
 		printf("flow table usage: %lu/%u (%lu%%)\n", num_flows, (1u << LOG_FLOW_ENTRIES), (num_flows * 100) / (1u << LOG_FLOW_ENTRIES));
-
+		last_count = count;
 	}
 }
