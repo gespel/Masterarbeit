@@ -160,6 +160,8 @@ int main(int argc, char **argv) {
 	uint64_t hashed = 0;
 	uint64_t cycles = 0;
 	uint64_t num_flows = 0;
+	uint64_t collisions = 0;
+	uint64_t table_full = 0;
 	uint64_t last_count = 0;
 	while (1) {
 		sleep(1);
@@ -169,6 +171,8 @@ int main(int argc, char **argv) {
 		DOCA_TRY(flexio_process_call(proc, &dump_flows, &num_flows, ctx_daddr));
 		printf("packets: %lu (+ %lu new), hashed: %lu, avg cycles/hash: %.1f, num_flows: %lu\n", count, count - last_count, hashed, hashed ? (double)cycles / hashed : 0.0, num_flows);
 		printf("flow table usage: %lu/%u (%lu%%)\n", num_flows, (1u << LOG_FLOW_ENTRIES), (num_flows * 100) / (1u << LOG_FLOW_ENTRIES));
+		DOCA_TRY(flexio_process_call(proc, &read_u64, &table_full, ctx_daddr + offsetof(struct pkt_ctx, table_full)));
+		printf("table full drops: %lu\n", table_full);
 		last_count = count;
 	}
 }

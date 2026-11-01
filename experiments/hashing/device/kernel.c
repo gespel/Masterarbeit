@@ -35,8 +35,30 @@ static int parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple 
 	return 1;
 }
 
+static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t hash) {
+	struct flow *flows = (struct flow *)c->flows;
+
+	for (uint32_t i = 0; i < MAX_TABLE_WALK_DISTANCE; i++) {
+		struct flow *f = &flows[(hash + i) & FLOW_MASK];
+
+		if (f->state == FLOW_EMPTY) { // new flow
+			f->t = *t;
+			f->hash = hash;
+			f->state = NEW_FLOW;
+			return f;
+		}
+		if (f->hash == hash && five_tuple_eq(&f->t, t)) { // existing flow
+			return f;
+		}
+		// collision, continue probing
+	}
+	c->table_full++;
+	return 0;
+}
+
 flexio_dev_event_handler_t pkt_handler;
 __dpa_global__ void pkt_handler(uint64_t arg) {
+	uint64_t start = __dpa_thread_cycles();
 	struct pkt_ctx *c = (struct pkt_ctx *)arg;
 	struct flexio_dev_cqe64 *ring = (struct flexio_dev_cqe64 *)c->cq_ring;
 
@@ -47,26 +69,19 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 		uint8_t *pkt = (uint8_t *)(c->rx_bufs + idx * BUF_BSIZE);
 		struct five_tuple t;
 		
-		uint64_t start = __dpa_thread_cycles();
+		
 		if (parse_five_tuple(pkt, len, &t)) {
 			//uint64_t start = __dpa_thread_cycles();
 			uint32_t hash = flow_hash(&t);
-			struct flow *f = (struct flow *)(c->flows + (hash & FLOW_MASK) * sizeof(struct flow));
-
-			if (f->t.proto != 0) {
-				flexio_dev_print("Collision detected for hash=0x%08x!\n", hash);
-			}
-			f->t = t;
-			f->hash = hash;
-			f->state = NEW_FLOW;
-			uint64_t cycles = __dpa_thread_cycles() - start;
+			flow_update(c, &t, hash);
+			
 			/*flexio_dev_print("hash=0x%08x, src=%u.%u.%u.%u:%u, dst=%u.%u.%u.%u:%u, proto=%u\n",
 				hash,
 				(t.src_ip >> 24) & 0xff, (t.src_ip >> 16) & 0xff, (t.src_ip >> 8) & 0xff, t.src_ip & 0xff, t.src_port,
 				(t.dst_ip >> 24) & 0xff, (t.dst_ip >> 16) & 0xff, (t.dst_ip >> 8) & 0xff, t.dst_ip & 0xff, t.dst_port,
 				t.proto);*/
 
-			c->hash_cycles += cycles;
+			
 			c->last_hash = hash;
 			c->hashed++;
 
@@ -83,6 +98,8 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 	flexio_dev_cq_arm(c->cq_ci, c->cq_num);
+	uint64_t cycles = __dpa_thread_cycles() - start;
+	c->hash_cycles += cycles;
 	flexio_dev_thread_reschedule();
 }
 
@@ -108,7 +125,7 @@ __dpa_rpc__ uint64_t dump_flows(uint64_t arg) {
 	uint64_t num_flows = 0;
 
 	for (uint32_t i = 0; i < (1u << LOG_FLOW_ENTRIES); i++) {
-		if (flows[i].t.proto != 0) {
+		if (flows[i].state != FLOW_EMPTY) {
 			/*flexio_dev_print("flow[%u]: %u.%u.%u.%u:%u -> %u.%u.%u.%u:%u, proto=%u\n",
 				i,
 				(flows[i].t.src_ip >> 24) & 0xff, (flows[i].t.src_ip >> 16) & 0xff, (flows[i].t.src_ip >> 8) & 0xff, flows[i].t.src_ip & 0xff, flows[i].t.src_port,

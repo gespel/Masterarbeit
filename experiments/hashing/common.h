@@ -23,8 +23,10 @@
 #define HASH_SEED   0x9e3779b9u
 #define LOG_FLOW_ENTRIES 16
 #define FLOW_MASK ((1u << LOG_FLOW_ENTRIES) - 1)
+#define MAX_TABLE_WALK_DISTANCE 16
 
 enum FlowState {
+	FLOW_EMPTY,
 	NEW_FLOW,
 	MALICOUS_FLOW,
 	BENIGN_FLOW,
@@ -42,6 +44,7 @@ struct pkt_ctx {
 	uint32_t last_hash;               /* hash of the most recent packet */
 	uint64_t flows;                   /* DPA address of the flow table, indexed by hash & FLOW_MASK */
 	uint64_t num_flows;
+	uint64_t table_full;              /* packets whose flow found no slot within MAX_TABLE_WALK_DISTANCE */
 };
 
 struct five_tuple {
@@ -49,6 +52,11 @@ struct five_tuple {
 	uint16_t src_port, dst_port;
 	uint8_t  proto;
 };
+
+static inline int five_tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
+	return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip &&
+	       a->src_port == b->src_port && a->dst_port == b->dst_port && a->proto == b->proto;
+}
 
 struct flow {
 	struct five_tuple t;
