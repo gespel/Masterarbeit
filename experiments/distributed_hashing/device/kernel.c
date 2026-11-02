@@ -42,6 +42,7 @@ static void flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t 
 			f->t = *t;
 			f->hash = hash;
 			f->state = FLOW_STATE_KNOWN;
+			f->suspicion_score = 0;
 			return;
 		}
 		if (f->hash == hash && f->t.src_ip == t->src_ip && f->t.dst_ip == t->dst_ip && f->t.src_port == t->src_port && f->t.dst_port == t->dst_port && f->t.proto == t->proto) {
