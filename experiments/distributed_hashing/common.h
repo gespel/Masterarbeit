@@ -20,6 +20,12 @@
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
 #define MAX_TABLE_WALK_DISTANCE 16
 
+typedef enum FlowState {
+	FLOW_STATE_NEW = 0,
+	FLOW_STATE_KNOWN = 1,
+	FLOW_STATE_SUSPICIOUS = 2,
+} FlowState;
+
 struct pkt_ctx {
 	uint64_t cq_ring, cq_dbr, rq_dbr; /* DPA addresses */
 	uint64_t rx_bufs;                 /* DPA address of the RX buffers */
@@ -39,7 +45,8 @@ struct five_tuple {
 struct flow {
 	struct five_tuple t;
 	uint32_t hash;
-	uint8_t used;
+	FlowState state;
+	uint16_t suspicion_score;
 };
 
 // Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.

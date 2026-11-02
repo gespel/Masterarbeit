@@ -38,16 +38,17 @@ static void flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t 
 	for (uint32_t i = 0; i < MAX_TABLE_WALK_DISTANCE; i++) {
 		struct flow *f = &flows[(hash + i) & FLOW_MASK];
 
-		if (!f->used) {
+		if (f->state == FLOW_STATE_NEW) {
 			f->t = *t;
 			f->hash = hash;
-			f->used = 1;
+			f->state = FLOW_STATE_KNOWN;
 			return;
 		}
 		if (f->hash == hash && f->t.src_ip == t->src_ip && f->t.dst_ip == t->dst_ip && f->t.src_port == t->src_port && f->t.dst_port == t->dst_port && f->t.proto == t->proto) {
-			return;
+			return; // known flow, nothing to do
 		}
 	}
+	// only reached if the flow table is full
 }
 
 flexio_dev_event_handler_t pkt_handler;

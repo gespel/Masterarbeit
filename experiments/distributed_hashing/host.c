@@ -173,9 +173,8 @@ int main(int argc, char **argv) {
 	for (unsigned int i = 0; i < EUS_PER_CORE; i++)
 		ctx[i] = create_handler(ibv, pd, core * EUS_PER_CORE + i, &rqs[i]);
 	steer_by_port(ibv, rqs);
-	fprintf(stderr, "pkt_handler on EUs %u..%u, Ctrl+C to stop\n", core * EUS_PER_CORE, core * EUS_PER_CORE + EUS_PER_CORE - 1);
 
-	/* stdout: CSV with the cumulative counters of every EU once per second, stderr: summary */
+	// stdout: CSV with the cumulative counters of every EU once per second, stderr: summary
 	//printf("t_s,eu,count,cycles\n");
 	struct timespec t0, now;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -197,8 +196,8 @@ int main(int argc, char **argv) {
 		}
 		//fflush(stdout);
 		double cpp = count ? (double)cycles / count : 0.0; /* handler cycles per packet, all EUs */
-		fprintf(stderr, "pkt/s: %.0f, cycles/pkt: %.1f, extrapolated: %.0f pkt/s per EU, %.0f pkt/s per core\n",
-			(count - last) / (t - last_t), cpp, cpp ? DPA_HZ / cpp : 0.0, cpp ? EUS_PER_CORE * DPA_HZ / cpp : 0.0);
+		fprintf(stderr, " million pkt/s: %.2f, cycles/pkt: %.1f\n\textrapolated: %.2f million pkt/s per EU, %.2f million pkt/s per core\n",
+			((count - last) / (t - last_t)) / 1000000, cpp, cpp ? (DPA_HZ / cpp) / 1000000 : 0.0, cpp ? (EUS_PER_CORE * DPA_HZ / cpp) / 1000000 : 0.0);
 		last = count;
 		last_t = t;
 	}
