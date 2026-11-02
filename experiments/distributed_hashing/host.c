@@ -176,7 +176,7 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "pkt_handler on EUs %u..%u, Ctrl+C to stop\n", core * EUS_PER_CORE, core * EUS_PER_CORE + EUS_PER_CORE - 1);
 
 	/* stdout: CSV with the cumulative counters of every EU once per second, stderr: summary */
-	printf("t_s,eu,count,cycles\n");
+	//printf("t_s,eu,count,cycles\n");
 	struct timespec t0, now;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 	uint64_t last = 0;
@@ -191,11 +191,11 @@ int main(int argc, char **argv) {
 		for (unsigned int i = 0; i < EUS_PER_CORE; i++) {
 			n = dpa_u64(ctx[i] + offsetof(struct pkt_ctx, count));
 			c = dpa_u64(ctx[i] + offsetof(struct pkt_ctx, cycles));
-			printf("%.3f,%u,%lu,%lu\n", t, i, n, c);
+			//printf("%.3f,%u,%lu,%lu\n", t, i, n, c);
 			count += n;
 			cycles += c;
 		}
-		fflush(stdout);
+		//fflush(stdout);
 		double cpp = count ? (double)cycles / count : 0.0; /* handler cycles per packet, all EUs */
 		fprintf(stderr, "pkt/s: %.0f, cycles/pkt: %.1f, extrapolated: %.0f pkt/s per EU, %.0f pkt/s per core\n",
 			(count - last) / (t - last_t), cpp, cpp ? DPA_HZ / cpp : 0.0, cpp ? EUS_PER_CORE * DPA_HZ / cpp : 0.0);
