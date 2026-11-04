@@ -2,12 +2,12 @@
 
 Quellen: PDFs in [docs/paper/dataset/](../paper/dataset/)
 
-| Kürzel | Paper | Flow-Basis | Verfahren |
-|---|---|---|---|
-| **V09** | Vykopal et al., *Network-based Dictionary Attack Detection* (ICFN 2009) | NetFlow v9, unidirektional | Entscheidungsbaum „SSH-D-tree" |
+| Kürzel | Paper | 
+|---|---|
+| **V09** | Vykopal et al., *Network-based Dictionary Attack Detection* (ICFN 2009) |
 | **H12** | Hellemons et al., *SSHCure* (AIMS 2012) | NetFlow, 1-min-Fenster | Schwellwerte + Phasen-Automat (Scan → BF → Die-off) |
-| **N14** | Najafabadi et al., *ML for Detecting Brute Force Attacks at the Network Level* (BIBE 2014) | IPFIX, 30 s idle / 30 min active | 5-NN, C4.5, NB |
-| **S17** | Sadasivam et al., *Detection of Severe SSH Attacks Using Honeypot Servers and ML* (JSN 2017) | pcap → bidir. TCP-Sessions | J48, PART, SVM, k-NN, LR, NB, OneR |
+| **N14** | Najafabadi et al., *ML for Detecting Brute Force Attacks at the Network Level* (BIBE 2014) |
+| **S17** | Sadasivam et al., *Detection of Severe SSH Attacks Using Honeypot Servers and ML* (JSN 2017) |
 
 ## Feature-Matrix
 
@@ -30,10 +30,3 @@ Quellen: PDFs in [docs/paper/dataset/](../paper/dataset/)
 | Abweichung letzter Flow (Login-Erfolg) | ✓ | ✓ PPF-Wechsel | – | – |
 
 ¹ Scan ≤ 2, Brute-Force 8–14, Die-off < 8 oder > 14
-
-## Kurzfazit
-
-- **Gemeinsamer Kern:** Pakete pro Flow (alle vier), Bytes (drei von vier).
-- **Per-Flow-ML** (N14, S17) braucht keine Multi-Flow-Aggregation; N14 reicht mit 8 NetFlow-Feldern, S17 benötigt Paket-Timing und Payload (pcap).
-- **Regel-Ansätze** (V09, H12) trennen BF von Fehl-Logins und Scans über Multi-Flow-Statistiken.
-- **Ports** erhöhen bei N14 die AUC leicht, mindern aber die Robustheit (SSH auf Nicht-Standard-Port).
