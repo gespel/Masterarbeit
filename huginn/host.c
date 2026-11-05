@@ -21,7 +21,6 @@
 static struct flexio_process *proc;
 
 extern flexio_func_t pkt_handler;
-extern flexio_func_t add;
 extern flexio_func_t read_u64;
 
 static flexio_uintptr_t to_dpa(void *src, size_t len) {
@@ -171,10 +170,10 @@ int main() {
 
 	DOCA_TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
-	DOCA_TRY(flexio_process_call(proc, &add, &ret, 2, 3));
+	// APP code here
+
 	flexio_msg_stream_flush(stream);
 	
-	printf("add(2, 3) on DPA = %lu\n", ret);
 
 	flexio_msg_stream_destroy(stream);
 	flexio_process_destroy(proc);
