@@ -1,11 +1,12 @@
 import torch
 
-LAYER_FUNCTION = """static void layer(const int8_t *in, const int8_t *w, const int32_t *b, int8_t *out, int rows, int cols, int relu) {
+LAYER_FUNCTION = """static void layer(const int8_t *in, const int8_t *w, const int8_t *b, int8_t *out, int rows, int cols, int relu) {
 	for (int r = 0; r < rows; r++) {
-		int32_t acc = b[r];
+		int32_t acc = 0;
 		for (int c = 0; c < cols; c++)
 			acc += (int32_t)w[r * cols + c] * (int32_t)in[c];
 		acc >>= NN_SHIFT;
+        acc += b[r];
 		if (relu && acc < 0)
 			acc = 0;
 		if (acc > 127)
@@ -41,7 +42,7 @@ class ModelCompiler:
 
     def f32_to_int8(self, value: float) -> int:
         # Convert a float32 value to int8 using a simple scaling factor
-        scale = 127.0  # Scale factor for int8 range
+        scale = 128.0  # Scale factor for int8 range
         return round(max(min(value * scale, 127), -128))
 
     def f32_to_int32(self, value: float) -> int:
@@ -51,7 +52,7 @@ class ModelCompiler:
 
     def compile(self, model: torch.nn.Module) -> str:
         out = ""
-        defines = ""
+        defines = "#define NN_SHIFT 7\n"
         weight_defs = ""
         bias_defs = ""
         values_defs = ""
@@ -74,9 +75,9 @@ class ModelCompiler:
                 weight_defs = weight_defs[:-2]
                 weight_defs += "};\n\n"
 
-                bias_defs += f"\tint32_t b{i+1}[NN_H{i+1}] = {{"
+                bias_defs += f"\tint8_t b{i+1}[NN_H{i+1}] = {{"
                 for j in range(bias.numel()):
-                    bias_defs += f"{self.f32_to_int32(bias.view(-1)[j].item())}, "
+                    bias_defs += f"{self.f32_to_int8(bias.view(-1)[j].item())}, "
                 bias_defs = bias_defs[:-2]
                 bias_defs += "};\n"
 
