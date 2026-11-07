@@ -98,7 +98,10 @@ class ModelCompiler:
 def main() -> None:
     m = TestNetwork()
     compiler = ModelCompiler()
-    print(compiler.compile(m))
+    text = compiler.compile(m)
+
+    with open("out.txt", "w") as f:
+        f.writelines(text)
 
 if __name__ == "__main__":
     main()
