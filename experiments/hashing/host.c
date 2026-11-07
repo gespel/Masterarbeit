@@ -145,10 +145,10 @@ int main(int argc, char **argv) {
 	size_t flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct flow);
 	DOCA_TRY(flexio_buf_dev_alloc(proc, flows_bsize, &ctx.flows));
 	DOCA_TRY(flexio_buf_dev_memset(proc, 0, flows_bsize, ctx.flows));
+
 	struct flexio_heap_mem_info heap;
 	DOCA_TRY(flexio_process_mem_info_get(proc, &heap));
-	fprintf(stderr, "flow table: %zu MB, heap: size %zu MB, requested %zu MB, allocated %zu MB\n",
-		flows_bsize >> 20, heap.size >> 20, heap.requested >> 20, heap.allocated >> 20);
+	fprintf(stderr, "flow table: %zu MB, heap: size %zu MB, requested %zu MB, allocated %zu MB\n", flows_bsize >> 20, heap.size >> 20, heap.requested >> 20, heap.allocated >> 20);
 
 	steer_all(ibv, rq);
 

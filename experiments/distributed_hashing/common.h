@@ -16,7 +16,7 @@
 #define IPPROTO_TCP    6
 #define IPPROTO_UDP    17
 #define HASH_SEED      0x9e3779b9u
-#define LOG_FLOW_ENTRIES 16
+#define LOG_FLOW_ENTRIES 21
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
 #define MAX_TABLE_WALK_DISTANCE 16
 

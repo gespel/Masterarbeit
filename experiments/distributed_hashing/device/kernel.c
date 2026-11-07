@@ -49,7 +49,7 @@ static void flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t 
 			return; // known flow, nothing to do
 		}
 	}
-	// only reached if the flow table is full
+	// only reached if the flow table is full, better yet we walked out of MAX_TABLE_WALK_DISTANCE
 }
 
 flexio_dev_event_handler_t pkt_handler;
