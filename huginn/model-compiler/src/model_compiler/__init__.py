@@ -50,7 +50,7 @@ class ModelCompiler:
 
     def compile(self, model: torch.nn.Module) -> str:
         out = ""
-        defines = "#include <stdint.h>\n#include <doca_dpa_dev.h>\n\n#define NN_SHIFT 7\n"
+        defines = "#include <stdint.h>\n\n#define NN_SHIFT 7\n"
         weight_defs = ""
         bias_defs = ""
         values_defs = ""
@@ -78,20 +78,27 @@ class ModelCompiler:
                     bias_defs += f"{self.f32_to_int8(bias.view(-1)[j].item())}, "
                 bias_defs = bias_defs[:-2]
                 bias_defs += "};\n"
-
-                values_defs += f"    int8_t v{i}[NN_H{i}];\n"
+                if i == 0:
+                    values_defs += f"    int8_t* v{i} = input;\n"
+                else:
+                    values_defs += f"    int8_t v{i}[NN_H{i}] = {{0}};\n"
                 i += 1
         defines += f"#define NN_H{i} {model.layers[len(model.layers)-1].out_features}\n"
-        values_defs += f"    int8_t v{i}[NN_H{i}];\n"
+        values_defs += f"    int8_t v{i}[NN_H{i}] = {{0}};\n"
         
         out += f"{defines}\n"
         out += f"{LAYER_FUNCTION}\n"
-        out += f"__dpa_global__ void small_neural_network(void) {{\n"
+        out += f"void neural_network(int8_t* input, int8_t* output) {{\n"
         out += f"{weight_defs}\n{bias_defs}\n{values_defs}\n"
+
         for k in range(i):
-            out += f"    layer(v{k}, w{k+1}, b{k+1}, v{k+1}, NN_H{k+1}, NN_H{k}, 1);\n"
             if k == i-1:
-                out = out[:-4] + "0);\n"
+                out += f"    layer(v{k}, w{k+1}, b{k+1}, output, NN_H{k+1}, NN_H{k}, 1);\n"
+            else:
+                out += f"    layer(v{k}, w{k+1}, b{k+1}, v{k+1}, NN_H{k+1}, NN_H{k}, 1);\n"
+            if k == i-1:
+                out = out[:-4] + "0);\n\n"
+        out += f"    output = v{i};\n"
         out += "}\n"
         return out
 
@@ -100,7 +107,7 @@ def main() -> None:
     compiler = ModelCompiler()
     text = compiler.compile(m)
 
-    with open("kernel.c", "w") as f:
+    with open("model.h", "w") as f:
         f.write(text)
 
 if __name__ == "__main__":
