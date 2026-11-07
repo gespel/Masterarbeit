@@ -78,13 +78,12 @@ class ModelCompiler:
                     bias_defs += f"{self.f32_to_int8(bias.view(-1)[j].item())}, "
                 bias_defs = bias_defs[:-2]
                 bias_defs += "};\n"
-                if i == 0:
-                    values_defs += f"    int8_t* v{i} = input;\n"
-                else:
+
+                if i != 0:
                     values_defs += f"    int8_t v{i}[NN_H{i}] = {{0}};\n"
+
                 i += 1
         defines += f"#define NN_H{i} {model.layers[len(model.layers)-1].out_features}\n"
-        values_defs += f"    int8_t v{i}[NN_H{i}] = {{0}};\n"
         
         out += f"{defines}\n"
         out += f"{LAYER_FUNCTION}\n"
@@ -94,11 +93,12 @@ class ModelCompiler:
         for k in range(i):
             if k == i-1:
                 out += f"    layer(v{k}, w{k+1}, b{k+1}, output, NN_H{k+1}, NN_H{k}, 1);\n"
+                out = out[:-4] + "0);\n\n"
+            elif k == 0:
+                out += f"    layer(input, w{k+1}, b{k+1}, v{k+1}, NN_H{k+1}, NN_H{k}, 1);\n"
             else:
                 out += f"    layer(v{k}, w{k+1}, b{k+1}, v{k+1}, NN_H{k+1}, NN_H{k}, 1);\n"
-            if k == i-1:
-                out = out[:-4] + "0);\n\n"
-        out += f"    output = v{i};\n"
+
         out += "}\n"
         return out
 
