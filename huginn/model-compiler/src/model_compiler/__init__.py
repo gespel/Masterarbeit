@@ -101,7 +101,7 @@ def main() -> None:
     text = compiler.compile(m)
 
     with open("kernel.c", "w") as f:
-        f.writelines(text)
+        f.write(text)
 
 if __name__ == "__main__":
     main()
