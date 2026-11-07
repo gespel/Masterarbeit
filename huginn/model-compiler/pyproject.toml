@@ -7,7 +7,9 @@ authors = [
     { name = "gespel", email = "sten.heimbrodt@hotmail.de" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "torch>=2.15.0",
+]
 
 [project.scripts]
 model-compiler = "model_compiler:main"
