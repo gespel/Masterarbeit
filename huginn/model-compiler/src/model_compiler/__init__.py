@@ -100,7 +100,7 @@ def main() -> None:
     compiler = ModelCompiler()
     text = compiler.compile(m)
 
-    with open("out.txt", "w") as f:
+    with open("kernel.c", "w") as f:
         f.writelines(text)
 
 if __name__ == "__main__":
