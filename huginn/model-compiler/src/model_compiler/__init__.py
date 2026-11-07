@@ -1,20 +1,20 @@
 import torch
 
 LAYER_FUNCTION = """static void layer(const int8_t *in, const int8_t *w, const int8_t *b, int8_t *out, int rows, int cols, int relu) {
-	for (int r = 0; r < rows; r++) {
-		int32_t acc = 0;
-		for (int c = 0; c < cols; c++)
-			acc += (int32_t)w[r * cols + c] * (int32_t)in[c];
-		acc >>= NN_SHIFT;
+    for (int r = 0; r < rows; r++) {
+        int32_t acc = 0;
+        for (int c = 0; c < cols; c++)
+            acc += (int32_t)w[r * cols + c] * (int32_t)in[c];
+        acc >>= NN_SHIFT;
         acc += b[r];
-		if (relu && acc < 0)
-			acc = 0;
-		if (acc > 127)
-			acc = 127;
-		if (acc < -128)
-			acc = -128;
-		out[r] = (int8_t)acc;
-	}
+        if (relu && acc < 0)
+            acc = 0;
+        if (acc > 127)
+            acc = 127;
+        if (acc < -128)
+            acc = -128;
+        out[r] = (int8_t)acc;
+    }
 }
 """
 
@@ -69,22 +69,22 @@ class ModelCompiler:
                 print(f"Layer: {name}, Weight shape: {weight.shape}")
                 defines += f"#define NN_H{i} {weight.shape[1]}\n"
 
-                weight_defs += f"\tint8_t w{i+1}[NN_H{i} * NN_H{i+1}] = {{"
+                weight_defs += f"    int8_t w{i+1}[NN_H{i} * NN_H{i+1}] = {{"
                 for j in range(weight.numel()):
                     weight_defs += f"{self.f32_to_int8(weight.view(-1)[j].item())}, "
                 weight_defs = weight_defs[:-2]
                 weight_defs += "};\n\n"
 
-                bias_defs += f"\tint8_t b{i+1}[NN_H{i+1}] = {{"
+                bias_defs += f"    int8_t b{i+1}[NN_H{i+1}] = {{"
                 for j in range(bias.numel()):
                     bias_defs += f"{self.f32_to_int8(bias.view(-1)[j].item())}, "
                 bias_defs = bias_defs[:-2]
                 bias_defs += "};\n"
 
-                values_defs += f"\tint8_t v{i}[NN_H{i}];\n"
+                values_defs += f"    int8_t v{i}[NN_H{i}];\n"
                 i += 1
         defines += f"#define NN_H{i} {model.layers[len(model.layers)-1].out_features}\n"
-        values_defs += f"\tint8_t v{i}[NN_H{i}];\n"
+        values_defs += f"    int8_t v{i}[NN_H{i}];\n"
         
         out += f"{defines}\n"
         out += f"{LAYER_FUNCTION}\n"
