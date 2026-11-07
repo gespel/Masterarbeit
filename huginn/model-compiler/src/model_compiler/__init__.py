@@ -42,12 +42,12 @@ class ModelCompiler:
     def f32_to_int8(self, value: float) -> int:
         # Convert a float32 value to int8 using a simple scaling factor
         scale = 127.0  # Scale factor for int8 range
-        return int(max(min(value * scale, 127), -128))
+        return round(max(min(value * scale, 127), -128))
 
     def f32_to_int32(self, value: float) -> int:
         # Convert a float32 value to int32 using a simple scaling factor
         scale = 2147483647.0  # Scale factor for int32 range
-        return int(max(min(value * scale, 2147483647), -2147483648))
+        return round(max(min(value * scale, 2147483647), -2147483648))
 
     def compile(self, model: torch.nn.Module) -> str:
         out = ""
