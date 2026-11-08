@@ -43,6 +43,10 @@ class ModelCompiler:
     def f32_to_int8(self, value: float) -> int:
         scale = 128.0  # Scale factor for int8 range
         return round(max(min(value * scale, 127), -128))
+    
+    def f32_to_int16(self, value: float) -> int:
+        scale = 32767
+        return round(max(min(value * scale, 32766), -32767))
 
     def f32_to_int32(self, value: float) -> int:
         scale = 2147483647.0  # Scale factor for int32 range
