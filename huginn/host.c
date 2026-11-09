@@ -18,10 +18,26 @@
 #define EUS_PER_CORE 16
 #define NUM_CORES    10
 #define NUM_EUS      (NUM_CORES * EUS_PER_CORE)
-#define SPORT_MASK   0xfff /* 4096 port buckets, so each EU gets 25 or 26 of them */
-/* Offsets in the outer-header part of the match buffer (PRM fte_match_set_lyr_2_4) */
+/* Offset in the outer-header part of the match buffer (PRM fte_match_set_lyr_2_4) */
 #define MATCH_IP_PROTOCOL 0x10
-#define MATCH_TCP_SPORT   0x14
+/* DevX commands for RSS, the offsets are bytes into the command input (PRM create_rqt_in, create_tir_in) */
+#define CMD_ALLOC_TD      0x816
+#define CMD_CREATE_TIR    0x900
+#define CMD_CREATE_RQT    0x916
+#define RQT_SIZE          2048 /* indirection table entries (device limit), so each EU gets 12 or 13 of them */
+#define RQT_MAX_SIZE      0x34
+#define RQT_ACTUAL_SIZE   0x38
+#define RQT_RQ_LIST       0x110
+#define TIR_DISP_TYPE     0x24
+#define TIR_INDIRECT      0x40 /* rx_hash_symmetric and indirect_table */
+#define TIR_HASH          0x44 /* rx_hash_fn and transport_domain */
+#define TIR_KEY           0x48
+#define TIR_FIELDS        0x70 /* outer rx_hash_field_select: IPv4, TCP, the four bits select IPs and ports */
+#define TIR_BSIZE         0x110
+#define TIR_DISP_INDIRECT (1u << 28)
+#define TIR_SYMMETRIC     (1u << 31)
+#define TIR_FN_TOEPLITZ   (2u << 28)
+#define TIR_HASH_4_TUPLE  0xf
 
 static struct flexio_process *proc;
 
@@ -114,10 +130,54 @@ static flexio_uintptr_t create_handler(struct ibv_context *ibv, struct ibv_pd *p
 	return ctx_daddr;
 }
 
+/* Runs a DevX create command. All three commands used here return the new object's number in the same place. */
+static uint32_t devx_create(struct ibv_context *ibv, const void *in, size_t inlen, struct mlx5dv_devx_obj **obj) {
+	uint32_t out[4] = {0};
+
+	*obj = mlx5dv_devx_obj_create(ibv, in, inlen, out, sizeof(out));
+	DOCA_TRY(!*obj);
+	return be32toh(out[2]) & 0xffffff;
+}
+
+/* Creates a TIR that spreads IPv4/TCP over the RQs with a symmetric Toeplitz hash. */
+static struct mlx5dv_devx_obj *create_rss_tir(struct ibv_context *ibv, const uint32_t *rqn) {
+	static const uint8_t key[40] = {
+		0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2, 0x41, 0x67, 0x25, 0x3d, 0x43, 0xa3, 0x8f, 0xb0,
+		0xd0, 0xca, 0x2b, 0xcb, 0xae, 0x7b, 0x30, 0xb4, 0x77, 0xcb, 0x2d, 0xa3, 0x80, 0x30, 0xf2, 0x0c,
+		0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa,
+	};
+	struct mlx5dv_devx_obj *obj;
+
+	uint32_t td_in[4] = { htobe32(CMD_ALLOC_TD << 16) };
+	uint32_t td = devx_create(ibv, td_in, sizeof(td_in), &obj);
+
+	size_t rqt_bsize = RQT_RQ_LIST + RQT_SIZE * sizeof(uint32_t);
+	uint32_t *rqt_in = calloc(1, rqt_bsize);
+	DOCA_TRY(!rqt_in);
+	rqt_in[0] = htobe32(CMD_CREATE_RQT << 16);
+	rqt_in[RQT_MAX_SIZE / 4] = htobe32(RQT_SIZE);
+	rqt_in[RQT_ACTUAL_SIZE / 4] = htobe32(RQT_SIZE);
+	for (uint32_t i = 0; i < RQT_SIZE; i++)
+		rqt_in[RQT_RQ_LIST / 4 + i] = htobe32(rqn[i % NUM_EUS]);
+	uint32_t rqt = devx_create(ibv, rqt_in, rqt_bsize, &obj);
+	free(rqt_in);
+
+	uint32_t tir_in[TIR_BSIZE / 4] = { htobe32(CMD_CREATE_TIR << 16) };
+	tir_in[TIR_DISP_TYPE / 4] = htobe32(TIR_DISP_INDIRECT);
+	tir_in[TIR_INDIRECT / 4] = htobe32(TIR_SYMMETRIC | rqt);
+	tir_in[TIR_HASH / 4] = htobe32(TIR_FN_TOEPLITZ | td);
+	memcpy(&tir_in[TIR_KEY / 4], key, sizeof(key));
+	tir_in[TIR_FIELDS / 4] = htobe32(TIR_HASH_4_TUPLE);
+	devx_create(ibv, tir_in, sizeof(tir_in), &obj);
+	return obj;
+}
+
 /* Starts pkt_handler on EUs 0..NUM_EUS-1 (cores 0..NUM_CORES-1), all sharing one flow table, and writes their contexts to ctx.
- * TCP goes to EU (low 12 bits of the source port) % NUM_EUS, all other packets to EU 0. */
-static void steer_by_port(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uintptr_t *ctx) {
-	struct mlx5dv_dr_action *to_rq[NUM_EUS];
+ * TCP is spread over all EUs by symmetric RSS, all other packets go to EU 0. Both directions of a flow thus share one EU:
+ * flow entries keep a single writer and the per-EU cycle counter stays comparable for the IAT. */
+static void steer_flows(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uintptr_t *ctx) {
+	struct flexio_rq *rq[NUM_EUS];
+	uint32_t rqn[NUM_EUS];
 
 	size_t flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct flow);
 	flexio_uintptr_t flows;
@@ -125,11 +185,15 @@ static void steer_by_port(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uin
 	DOCA_TRY(flexio_buf_dev_memset(proc, 0, flows_bsize, flows));
 
 	for (unsigned int eu = 0; eu < NUM_EUS; eu++) {
-		struct flexio_rq *rq;
-		ctx[eu] = create_handler(ibv, pd, eu, flows, &rq);
-		to_rq[eu] = mlx5dv_dr_action_create_dest_devx_tir(flexio_rq_get_tir(rq));
-		DOCA_TRY(!to_rq[eu]);
+		ctx[eu] = create_handler(ibv, pd, eu, flows, &rq[eu]);
+		rqn[eu] = flexio_rq_get_wq_num(rq[eu]);
+		DOCA_TRY(rqn[eu] == UINT32_MAX);
 	}
+
+	struct mlx5dv_dr_action *to_eu0 = mlx5dv_dr_action_create_dest_devx_tir(flexio_rq_get_tir(rq[0]));
+	DOCA_TRY(!to_eu0);
+	struct mlx5dv_dr_action *to_rss = mlx5dv_dr_action_create_dest_devx_tir(create_rss_tir(ibv, rqn));
+	DOCA_TRY(!to_rss);
 
 	struct mlx5dv_flow_match_parameters *match = calloc(1, sizeof(*match) + 64);
 	uint8_t *m = (uint8_t *)match->match_buf;
@@ -141,20 +205,14 @@ static void steer_by_port(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uin
 	DOCA_TRY(!tbl);
 	struct mlx5dv_dr_matcher *rest = mlx5dv_dr_matcher_create(tbl, 1, 0, match); /* match all, lower priority */
 	DOCA_TRY(!rest);
-	DOCA_TRY(!mlx5dv_dr_rule_create(rest, match, 1, &to_rq[0]));
+	DOCA_TRY(!mlx5dv_dr_rule_create(rest, match, 1, &to_eu0));
 
 	m[MATCH_IP_PROTOCOL] = 0xff;
-	m[MATCH_TCP_SPORT] = SPORT_MASK >> 8;
-	m[MATCH_TCP_SPORT + 1] = SPORT_MASK & 0xff;
-	struct mlx5dv_dr_matcher *by_port = mlx5dv_dr_matcher_create(tbl, 0, 1, match); /* 1 = outer headers */
-	DOCA_TRY(!by_port);
+	struct mlx5dv_dr_matcher *tcp = mlx5dv_dr_matcher_create(tbl, 0, 1, match); /* 1 = outer headers */
+	DOCA_TRY(!tcp);
 
 	m[MATCH_IP_PROTOCOL] = IPPROTO_TCP;
-	for (unsigned int port = 0; port <= SPORT_MASK; port++) {
-		m[MATCH_TCP_SPORT] = port >> 8;
-		m[MATCH_TCP_SPORT + 1] = port & 0xff;
-		DOCA_TRY(!mlx5dv_dr_rule_create(by_port, match, 1, &to_rq[port % NUM_EUS]));
-	}
+	DOCA_TRY(!mlx5dv_dr_rule_create(tcp, match, 1, &to_rss));
 	free(match);
 }
 
@@ -185,7 +243,7 @@ int main() {
 	DOCA_TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
 	flexio_uintptr_t ctx[NUM_EUS];
-	steer_by_port(ibv, pd, ctx);
+	steer_flows(ibv, pd, ctx);
 
 	struct timespec t0, now;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -193,7 +251,7 @@ int main() {
 	double last_t = 0;
 	int duration = 0;
 	while (1) {
-		uint64_t count = 0, cycles = 0;
+		uint64_t count = 0, cycles = 0, used = 0;
 
 		sleep(1);
 		flexio_msg_stream_flush(stream);
@@ -203,20 +261,22 @@ int main() {
 		for (unsigned int eu = 0; eu < NUM_EUS; eu++) {
 			count += dpa_u64(ctx[eu] + offsetof(struct pkt_ctx, count));
 			cycles += dpa_u64(ctx[eu] + offsetof(struct pkt_ctx, cycles));
+
+			uint64_t eu_used;
+			DOCA_TRY(flexio_process_call(proc, &flow_table_fill, &eu_used, ctx[eu]));
+			used += eu_used;
 		}
-		uint64_t used = 0;
-		DOCA_TRY(flexio_process_call(proc, &flow_table_fill, &used, dpa_u64(ctx[0] + offsetof(struct pkt_ctx, flows))));
-		fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%)\n",
+		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%)\n",
 			((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
-			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES));
+			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES));*/
 		fprintf(stderr, "measurement: %d, million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%)\n",
 			duration, ((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
 			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES));
 		last = count;
 		last_t = t;
-		duration += 1;
+		/*duration += 1;
 		if (duration >= 30) {
 			break;
-		}
+		}*/
 	}
 }

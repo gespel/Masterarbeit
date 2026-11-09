@@ -16,9 +16,9 @@
 #define IPPROTO_TCP    6
 #define IPPROTO_UDP    17
 #define HASH_SEED      0x9e3779b9u
-#define LOG_FLOW_ENTRIES 16
+#define LOG_FLOW_ENTRIES 22
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
-#define MAX_TABLE_WALK_DISTANCE 15
+#define MAX_TABLE_WALK_DISTANCE 2
 
 typedef enum FlowState {
 	FLOW_STATE_NEW = 0,
@@ -27,15 +27,17 @@ typedef enum FlowState {
 } FlowState;
 
 struct pkt_ctx {
-	uint64_t cq_ring, cq_dbr, rq_dbr; /* DPA addresses */
-	uint64_t rx_bufs;                 /* DPA address of the RX buffers */
-	uint64_t flows;                   /* DPA address of the flow table, indexed by hash & FLOW_MASK */
-	uint32_t cq_num;                  /* CQ number, needed to arm the CQ */
-	uint32_t cq_ci;                   /* CQ consumer index */
-	uint64_t count;                   /* received packets */
-	uint64_t cycles;                  /* DPA cycles spent in pkt_handler */
+	uint64_t cq_ring, cq_dbr, rq_dbr; // DPA addresses
+	uint64_t rx_bufs; // DPA address of the RX buffers
+	uint64_t flows; // DPA address of the flow table, indexed by hash & FLOW_MASK
+	uint32_t cq_num; // CQ number, needed to arm the CQ
+	uint32_t cq_ci;  // CQ consumer index
+	uint64_t count;  // received packets
+	uint64_t cycles; // DPA cycles spent in pkt_handler
+	struct flow *first;
 };
 
+// Canonical form: src is the lower endpoint, not the sender, so both directions of a connection compare equal.
 struct five_tuple {
 	uint32_t src_ip, dst_ip;
 	uint16_t src_port, dst_port;
@@ -46,7 +48,18 @@ struct flow {
 	struct five_tuple t;
 	uint32_t hash;
 	FlowState state;
+
+	uint32_t total_bytes;
+	uint32_t total_pkts;
+	uint32_t iat_min;
+	uint32_t iat_max;
+	uint32_t iat_sum;
+	uint32_t rst_count;
+	uint32_t psh_count;
+	uint32_t fin_count;
+
 	uint16_t suspicion_score;
+	struct flow *next;
 };
 
 // Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.
