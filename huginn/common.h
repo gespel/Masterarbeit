@@ -18,7 +18,7 @@
 #define HASH_SEED      0x9e3779b9u
 #define LOG_FLOW_ENTRIES 16
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
-#define MAX_TABLE_WALK_DISTANCE 16
+#define MAX_TABLE_WALK_DISTANCE 15
 
 typedef enum FlowState {
 	FLOW_STATE_NEW = 0,

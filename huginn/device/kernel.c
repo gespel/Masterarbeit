@@ -83,3 +83,14 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 __dpa_rpc__ uint64_t read_u64(uint64_t addr) {
 	return *(uint64_t *)addr;
 }
+
+__dpa_rpc__ uint64_t flow_table_fill(uint64_t addr) {
+	struct flow *flows = (struct flow *)addr;
+	uint64_t used = 0;
+
+	for (uint32_t i = 0; i <= FLOW_MASK; i++) {
+		if (flows[i].state != FLOW_STATE_NEW)
+			used++;
+	}
+	return used;
+}

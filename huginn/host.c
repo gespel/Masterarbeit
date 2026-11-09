@@ -1,7 +1,9 @@
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <infiniband/mlx5dv.h>
 #include <libflexio/flexio_ver.h>
@@ -14,6 +16,9 @@
 #define Q_DEPTH      (1u << LOG_Q_DEPTH)
 #define DPA_HZ       1.8e9
 #define EUS_PER_CORE 16
+#define NUM_CORES    10
+#define NUM_EUS      (NUM_CORES * EUS_PER_CORE)
+#define SPORT_MASK   0xfff /* 4096 port buckets, so each EU gets 25 or 26 of them */
 /* Offsets in the outer-header part of the match buffer (PRM fte_match_set_lyr_2_4) */
 #define MATCH_IP_PROTOCOL 0x10
 #define MATCH_TCP_SPORT   0x14
@@ -22,6 +27,7 @@ static struct flexio_process *proc;
 
 extern flexio_func_t pkt_handler;
 extern flexio_func_t read_u64;
+extern flexio_func_t flow_table_fill;
 
 static flexio_uintptr_t to_dpa(void *src, size_t len) {
 	flexio_uintptr_t daddr;
@@ -50,7 +56,7 @@ static struct ibv_context *open_ibv(const char *name) {
 	return ctx;
 }
 
-static flexio_uintptr_t create_handler(struct ibv_context *ibv, struct ibv_pd *pd, uint32_t eu, struct flexio_rq **rq) {
+static flexio_uintptr_t create_handler(struct ibv_context *ibv, struct ibv_pd *pd, uint32_t eu, flexio_uintptr_t flows, struct flexio_rq **rq) {
 	struct flexio_event_handler *eh;
 	struct flexio_event_handler_attr eh_attr = {
 		.host_stub_func = pkt_handler,
@@ -58,7 +64,7 @@ static flexio_uintptr_t create_handler(struct ibv_context *ibv, struct ibv_pd *p
 	};
 	DOCA_TRY(flexio_event_handler_create(proc, &eh_attr, &eh));
 
-	struct pkt_ctx ctx = {0};
+	struct pkt_ctx ctx = { .flows = flows };
 	struct mlx5_cqe64 cqes[Q_DEPTH] = {0};
 	__be32 dbr[2] = {0, 0};
 	for (uint32_t i = 0; i < Q_DEPTH; i++)
@@ -103,17 +109,28 @@ static flexio_uintptr_t create_handler(struct ibv_context *ibv, struct ibv_pd *p
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
 	DOCA_TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
-	size_t flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct flow);
-	DOCA_TRY(flexio_buf_dev_alloc(proc, flows_bsize, &ctx.flows));
-	DOCA_TRY(flexio_buf_dev_memset(proc, 0, flows_bsize, ctx.flows));
-
 	flexio_uintptr_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
 	DOCA_TRY(flexio_event_handler_run(eh, ctx_daddr));
 	return ctx_daddr;
 }
 
-/* TCP goes to rqs[low 4 bits of the source port], all other packets to rqs[0]. */
-static void steer_by_port(struct ibv_context *ibv, struct flexio_rq **rqs) {
+/* Starts pkt_handler on EUs 0..NUM_EUS-1 (cores 0..NUM_CORES-1), all sharing one flow table, and writes their contexts to ctx.
+ * TCP goes to EU (low 12 bits of the source port) % NUM_EUS, all other packets to EU 0. */
+static void steer_by_port(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uintptr_t *ctx) {
+	struct mlx5dv_dr_action *to_rq[NUM_EUS];
+
+	size_t flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct flow);
+	flexio_uintptr_t flows;
+	DOCA_TRY(flexio_buf_dev_alloc(proc, flows_bsize, &flows));
+	DOCA_TRY(flexio_buf_dev_memset(proc, 0, flows_bsize, flows));
+
+	for (unsigned int eu = 0; eu < NUM_EUS; eu++) {
+		struct flexio_rq *rq;
+		ctx[eu] = create_handler(ibv, pd, eu, flows, &rq);
+		to_rq[eu] = mlx5dv_dr_action_create_dest_devx_tir(flexio_rq_get_tir(rq));
+		DOCA_TRY(!to_rq[eu]);
+	}
+
 	struct mlx5dv_flow_match_parameters *match = calloc(1, sizeof(*match) + 64);
 	uint8_t *m = (uint8_t *)match->match_buf;
 	match->match_sz = 64;
@@ -124,30 +141,29 @@ static void steer_by_port(struct ibv_context *ibv, struct flexio_rq **rqs) {
 	DOCA_TRY(!tbl);
 	struct mlx5dv_dr_matcher *rest = mlx5dv_dr_matcher_create(tbl, 1, 0, match); /* match all, lower priority */
 	DOCA_TRY(!rest);
+	DOCA_TRY(!mlx5dv_dr_rule_create(rest, match, 1, &to_rq[0]));
+
 	m[MATCH_IP_PROTOCOL] = 0xff;
-	m[MATCH_TCP_SPORT + 1] = EUS_PER_CORE - 1;
+	m[MATCH_TCP_SPORT] = SPORT_MASK >> 8;
+	m[MATCH_TCP_SPORT + 1] = SPORT_MASK & 0xff;
 	struct mlx5dv_dr_matcher *by_port = mlx5dv_dr_matcher_create(tbl, 0, 1, match); /* 1 = outer headers */
 	DOCA_TRY(!by_port);
 
-	for (unsigned int i = 0; i < EUS_PER_CORE; i++) {
-		struct mlx5dv_dr_action *to_rq = mlx5dv_dr_action_create_dest_devx_tir(flexio_rq_get_tir(rqs[i]));
-		DOCA_TRY(!to_rq);
-		m[MATCH_IP_PROTOCOL] = IPPROTO_TCP;
-		m[MATCH_TCP_SPORT + 1] = i;
-		DOCA_TRY(!mlx5dv_dr_rule_create(by_port, match, 1, &to_rq));
-		if (i == 0) {
-			memset(m, 0, 64);
-			DOCA_TRY(!mlx5dv_dr_rule_create(rest, match, 1, &to_rq));
-		}
+	m[MATCH_IP_PROTOCOL] = IPPROTO_TCP;
+	for (unsigned int port = 0; port <= SPORT_MASK; port++) {
+		m[MATCH_TCP_SPORT] = port >> 8;
+		m[MATCH_TCP_SPORT + 1] = port & 0xff;
+		DOCA_TRY(!mlx5dv_dr_rule_create(by_port, match, 1, &to_rq[port % NUM_EUS]));
 	}
 	free(match);
 }
 
 int main() {
-    struct ibv_context *ibv = open_ibv("mlx5_0");
+	struct ibv_context *ibv = open_ibv("mlx5_2");
+	struct ibv_pd *pd = ibv_alloc_pd(ibv);
+	DOCA_TRY(!pd);
+
 	struct flexio_app *app;
-	struct flexio_process *proc;
-	
 	struct flexio_app_select_attr sel = {
 		.app_name = "huginn_app", 
 		.hw_model_id = FLEXIO_HW_MODEL_DEF, 
@@ -161,8 +177,6 @@ int main() {
 		.sync_mode = FLEXIO_MSG_DEV_SYNC_MODE_SYNC, 
 		.level = FLEXIO_MSG_DEV_INFO,
 	};
-	
-	uint64_t ret;
 
 	DOCA_TRY(flexio_version_set(FLEXIO_VER_USED));
 	DOCA_TRY(flexio_app_get(&sel, &app));
@@ -170,13 +184,39 @@ int main() {
 
 	DOCA_TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
-	// APP code here
+	flexio_uintptr_t ctx[NUM_EUS];
+	steer_by_port(ibv, pd, ctx);
 
-	flexio_msg_stream_flush(stream);
-	
+	struct timespec t0, now;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+	uint64_t last = 0;
+	double last_t = 0;
+	int duration = 0;
+	while (1) {
+		uint64_t count = 0, cycles = 0;
 
-	flexio_msg_stream_destroy(stream);
-	flexio_process_destroy(proc);
-	ibv_close_device(ibv);
-    return 0;
+		sleep(1);
+		flexio_msg_stream_flush(stream);
+		/* the RPCs below take time too, so stamp every interval with the real time */
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		double t = (now.tv_sec - t0.tv_sec) + (now.tv_nsec - t0.tv_nsec) * 1e-9;
+		for (unsigned int eu = 0; eu < NUM_EUS; eu++) {
+			count += dpa_u64(ctx[eu] + offsetof(struct pkt_ctx, count));
+			cycles += dpa_u64(ctx[eu] + offsetof(struct pkt_ctx, cycles));
+		}
+		uint64_t used = 0;
+		DOCA_TRY(flexio_process_call(proc, &flow_table_fill, &used, dpa_u64(ctx[0] + offsetof(struct pkt_ctx, flows))));
+		fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%)\n",
+			((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
+			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES));
+		fprintf(stderr, "measurement: %d, million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%)\n",
+			duration, ((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
+			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES));
+		last = count;
+		last_t = t;
+		duration += 1;
+		if (duration >= 30) {
+			break;
+		}
+	}
 }
