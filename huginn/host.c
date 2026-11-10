@@ -262,15 +262,14 @@ int main() {
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		double t = (now.tv_sec - t0.tv_sec) + (now.tv_nsec - t0.tv_nsec) * 1e-9;
 		uint64_t count = st.count, cycles = st.cycles, used = st.used, coll = st.collisions;
-		uint64_t cls = st.classified, mal = st.malicious, freed = st.freed;
 		/* share of this interval's packets that found their bucket full and belong to no flow */
 		double coll_pct = count > last ? 100.0 * (coll - last_coll) / (count - last) : 0.0;
-		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%, classified: %lu, malicious: %lu, freed: %lu\n",
+		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%\n",
 			((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
-			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct, cls, mal, freed);*/
-		fprintf(stderr, "measurement: %d, million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%, classified: %lu, malicious: %lu, freed: %lu\n",
+			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct);*/
+		fprintf(stderr, "measurement: %d, million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%\n",
 			duration, ((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
-			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct, cls, mal, freed);
+			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct);
 		last = count;
 		last_coll = coll;
 		last_t = t;

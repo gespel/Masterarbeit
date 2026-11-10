@@ -57,95 +57,54 @@ static int tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
 	return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip && a->src_port == b->src_port && a->dst_port == b->dst_port && a->proto == b->proto;
 }
 
-static void flow_init(struct pkt_ctx *c, struct flow *f, const struct five_tuple *t, uint32_t hash) {
-	f->t = *t;
-	f->hash = hash;
-	f->total_bytes = 0;
-	f->total_pkts = 0;
-	f->iat_min = 0;
-	f->iat_max = 0;
-	f->iat_sum = 0;
-	f->last_seen = 0;
-	f->rst_count = 0;
-	f->psh_count = 0;
-	f->fin_count = 0;
-	f->suspicion_score = 0;
-
-	f->next = c->first;
-	c->first = f;
-	c->used++;
-}
-
+/* Set-associative lookup: the hash picks a bucket of FLOW_WAYS adjacent slots and the flow lives in one of them or nowhere.
+ * Freed slots can sit in front of the flow, so search all ways before claiming a free one; free slots still hold their old
+ * tuple and must not match. Returns NULL if the bucket is full of other flows or another EU took the free slot first. */
 static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t hash) {
 	struct flow *bucket = &((struct flow *)c->flows)[hash & FLOW_MASK & ~(FLOW_WAYS - 1)];
-	uint32_t free_ways = 0;
+	struct flow *free_slot = NULL;
 
 	for (unsigned int i = 0; i < FLOW_WAYS; i++) {
 		struct flow *f = &bucket[i];
 
 		if (f->state == FLOW_STATE_NEW) {
-			free_ways |= 1u << i;
+			if (!free_slot) {
+				free_slot = f;
+			}
 		} else if (f->hash == hash && tuple_eq(&f->t, t)) {
-			return f;
+			return f; // return a flow that is known
 		}
 	}
-	for (unsigned int i = 0; i < FLOW_WAYS; i++) {
-		struct flow *f = &bucket[i];
+	if (free_slot && flow_claim(free_slot)) {
+		struct flow *f = free_slot;
 
-		if ((free_ways & (1u << i)) && flow_claim(f)) {
-			flow_init(c, f, t, hash);
-			return f;
-		}
+		// the slot may have held another flow, so every feature starts over
+		f->t = *t;
+		f->hash = hash;
+		f->total_bytes = 0;
+		f->total_pkts = 0;
+		f->iat_min = 0;
+		f->iat_max = 0;
+		f->iat_sum = 0;
+		f->last_seen = 0;
+		f->rst_count = 0;
+		f->psh_count = 0;
+		f->fin_count = 0;
+		f->suspicion_score = 0;
+		c->used++;
+		return f;
 	}
 	c->collisions++;
 	return NULL;
 }
 
-static void flow_free(struct pkt_ctx *c, struct flow **link) {
-	struct flow *f = *link;
-
-	*link = f->next;
-	c->used--;
-	c->freed++;
+/* Another EU may claim the slot right after the store and write its tuple a few cycles later; until then the old tuple
+ * would still match this flow's next packet. Breaking the hash first prevents that: a tuple only matches its own hash. */
+static void flow_free(struct pkt_ctx *c, struct flow *f) {
 	f->hash ^= 1;
+	c->used--;
+	// release: none of our writes to the slot may land after the next owner's initialisation
 	__atomic_store_n(&f->state, FLOW_STATE_NEW, __ATOMIC_RELEASE);
-}
-
-static void flow_classify(struct pkt_ctx *c, struct flow *f) {
-	int malicious = 0;
-
-	c->classified++;
-	if (malicious) {
-		c->malicious++;
-		__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED);
-	} else {
-		__atomic_store_n(&f->state, FLOW_STATE_BENIGN, __ATOMIC_RELAXED);
-	}
-}
-
-/* Walks this EU's own list a few entries per packet, so flows get decided and freed even if no packet of theirs arrives
- * anymore: classifies flows that went idle before reaching CLS_MIN_PKTS and frees the benign ones. Uses the inference
- * budget left over by the packet path. */
-static void flow_sweep(struct pkt_ctx *c, uint32_t now, int budget) {
-	for (unsigned int n = 0; n < SWEEP_PER_PKT; n++) {
-		if (!c->sweep || !*c->sweep) { // first call or end of list: start over
-			c->sweep = &c->first;
-		}
-		struct flow *f = *c->sweep;
-
-		if (!f) { // list empty
-			return;
-		}
-		if (budget && f->state == FLOW_STATE_KNOWN && now - f->last_seen > CLS_IDLE_US) {
-			flow_classify(c, f);
-			budget--;
-		}
-		if (f->state == FLOW_STATE_BENIGN) {
-			flow_free(c, c->sweep); // the cursor stays and now leads to the successor
-		} else {
-			c->sweep = &f->next;
-		}
-	}
 }
 
 flexio_dev_event_handler_t pkt_handler;
@@ -162,7 +121,6 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 		parse_five_tuple((uint8_t *)(c->rx_bufs + idx * BUF_BSIZE), flexio_dev_cqe_get_byte_cnt(cqe), &t);
 		struct flow *f = flow_update(c, &t, flow_hash(&t));
 		uint32_t now = (uint32_t)__dpa_thread_time();
-		int budget = 1;
 
 		if (f) {
 			if (f->total_pkts > 0) {
@@ -180,13 +138,18 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			f->total_bytes += flexio_dev_cqe_get_byte_cnt(cqe);
 			f->total_pkts++;
 
-			// >= rather than ==: a flow is decided on the packet that reaches the threshold, the check just keeps that robust
-			if (f->state == FLOW_STATE_KNOWN && f->total_pkts >= CLS_MIN_PKTS) {
-				flow_classify(c, f);
-				budget--;
+			// a flow passes this count only once: benign ones restart from 0 in a new slot, malicious ones keep counting
+			if (f->total_pkts == CLS_MIN_PKTS) {
+				// TODO inference: score f's features with the model, store the output in f->suspicion_score
+				int malicious = 0;
+
+				if (malicious) {
+					__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED); // other EUs read it concurrently
+				} else {
+					flow_free(c, f);
+				}
 			}
 		}
-		flow_sweep(c, now, budget);
 
 		c->count++;
 		flexio_dev_dbr_cq_set_ci((uint32_t *)c->cq_dbr, ++c->cq_ci);
@@ -206,7 +169,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out) {
 	const uint64_t *ctx = (const uint64_t *)ctxs;
 	struct stats *s = (struct stats *)out;
-	uint64_t count = 0, cycles = 0, used = 0, collisions = 0, classified = 0, malicious = 0, freed = 0;
+	uint64_t count = 0, cycles = 0, used = 0, collisions = 0;
 
 	for (uint64_t eu = 0; eu < num_eus; eu++) {
 		struct pkt_ctx *c = (struct pkt_ctx *)ctx[eu];
@@ -215,17 +178,11 @@ __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out
 		cycles += c->cycles;
 		collisions += c->collisions;
 		used += c->used;
-		classified += c->classified;
-		malicious += c->malicious;
-		freed += c->freed;
 	}
 	s->count = count;
 	s->cycles = cycles;
 	s->used = used;
 	s->collisions = collisions;
-	s->classified = classified;
-	s->malicious = malicious;
-	s->freed = freed;
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 	return 0;
 }

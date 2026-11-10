@@ -20,15 +20,12 @@
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
 #define LOG_FLOW_WAYS  2 // the hash picks a bucket of 2^LOG_FLOW_WAYS adjacent slots, a flow only ever lives inside its bucket
 #define FLOW_WAYS      (1u << LOG_FLOW_WAYS)
-#define CLS_MIN_PKTS   8       // a flow is classified on the packet that brings it to this many packets
-#define CLS_IDLE_US    1000000 // or by the sweep once it has been idle this long (µs ticks of __dpa_thread_time)
-#define SWEEP_PER_PKT  2       // own list entries the sweep visits per received packet
+#define CLS_MIN_PKTS   8 // a flow is classified on its CLS_MIN_PKTS-th packet; benign ones free their slot right away
 
 typedef enum FlowState {
 	FLOW_STATE_NEW = 0,
 	FLOW_STATE_KNOWN = 1,
 	FLOW_STATE_SUSPICIOUS = 2,
-	FLOW_STATE_BENIGN = 3,
 } FlowState;
 
 struct pkt_ctx {
@@ -41,11 +38,6 @@ struct pkt_ctx {
 	uint64_t cycles;
 	uint64_t collisions; // packets whose bucket was full of other flows, they are counted but belong to no flow
 	uint64_t used;       // slots this EU holds now
-	uint64_t classified;
-	uint64_t malicious;
-	uint64_t freed;
-	struct flow *first;  // this EU's slots, newest first
-	struct flow **sweep; // sweep cursor: the link that leads to the next entry to visit, NULL = start at first
 };
 
 struct stats {
@@ -53,9 +45,6 @@ struct stats {
 	uint64_t cycles;
 	uint64_t used;
 	uint64_t collisions;
-	uint64_t classified;
-	uint64_t malicious;
-	uint64_t freed;
 };
 
 // Canonical form: src is the lower endpoint, not the sender, so both directions of a connection compare equal.
@@ -81,7 +70,6 @@ struct flow {
 	uint32_t fin_count;
 
 	uint16_t suspicion_score;
-	struct flow *next;
 };
 
 // Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.
