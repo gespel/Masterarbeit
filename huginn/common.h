@@ -36,8 +36,9 @@ struct pkt_ctx {
 	uint32_t cq_ci;
 	uint64_t count;
 	uint64_t cycles;
-	uint64_t collisions; // packets whose bucket was full of other flows, they are counted but belong to no flow
-	uint64_t used;       // slots this EU holds now
+	uint64_t collisions;
+	uint64_t used;
+	uint64_t inferred;
 };
 
 struct stats {
@@ -45,6 +46,7 @@ struct stats {
 	uint64_t cycles;
 	uint64_t used;
 	uint64_t collisions;
+	uint64_t inferred;
 };
 
 // Canonical form: src is the lower endpoint, not the sender, so both directions of a connection compare equal.

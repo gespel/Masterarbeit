@@ -140,6 +140,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			if (f->total_pkts >= NUM_PCKGS_BEFORE_CLASSIFICATION) {
 				int malicious = 0;
 				// TODO: inference
+				c->inferred++;
 				if (malicious) {
 					__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED); // other EUs read it concurrently
 				} else {
@@ -166,7 +167,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out) {
 	const uint64_t *ctx = (const uint64_t *)ctxs;
 	struct stats *s = (struct stats *)out;
-	uint64_t count = 0, cycles = 0, used = 0, collisions = 0;
+	uint64_t count = 0, cycles = 0, used = 0, collisions = 0, inferred = 0;
 
 	for (uint64_t eu = 0; eu < num_eus; eu++) {
 		struct pkt_ctx *c = (struct pkt_ctx *)ctx[eu];
@@ -175,11 +176,13 @@ __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out
 		cycles += c->cycles;
 		collisions += c->collisions;
 		used += c->used;
+		inferred += c->inferred;
 	}
 	s->count = count;
 	s->cycles = cycles;
 	s->used = used;
 	s->collisions = collisions;
+	s->inferred = inferred;
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 	return 0;
 }

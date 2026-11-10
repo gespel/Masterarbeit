@@ -248,7 +248,7 @@ int main() {
 
 	struct timespec t0, now;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	uint64_t last = 0, last_coll = 0;
+	uint64_t last = 0, last_coll = 0, last_inferred = 0;
 	double last_t = 0;
 	int duration = 0;
 	while (1) {
@@ -261,18 +261,25 @@ int main() {
 		/* the RPC takes time too, so stamp every interval with the real time */
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		double t = (now.tv_sec - t0.tv_sec) + (now.tv_nsec - t0.tv_nsec) * 1e-9;
-		uint64_t count = st.count, cycles = st.cycles, used = st.used, coll = st.collisions;
+		uint64_t count = st.count, cycles = st.cycles, used = st.used, coll = st.collisions, inferred = st.inferred;
 		/* share of this interval's packets that found their bucket full and belong to no flow */
 		double coll_pct = count > last ? 100.0 * (coll - last_coll) / (count - last) : 0.0;
 		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%\n",
 			((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
 			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct);*/
-		fprintf(stderr, "measurement: %d, million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%\n",
-			duration, ((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
-			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct);
+		fprintf(stderr, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%, inferred: %f million flows/s\n",
+			((count - last) / (t - last_t)) / 1000000, 
+			count ? (double)cycles / count : 0.0,
+			used, 
+			1u << LOG_FLOW_ENTRIES, 
+			100.0 * used / (1u << LOG_FLOW_ENTRIES),
+			coll_pct, 
+			(inferred - last_inferred) / (t - last_t) / 1000000
+		);
 		last = count;
 		last_coll = coll;
 		last_t = t;
+		last_inferred = inferred;
 		//duration += 1;
 		//if (duration >= 30) {
 		//	break;
