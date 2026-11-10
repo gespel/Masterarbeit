@@ -43,7 +43,7 @@ static void parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple
 	}
 }
 
-static int flow_claim(struct flow *f) {
+static int flow_lock(struct flow *f) {
 	if (f->state != FLOW_STATE_NEW) {
 		return 0;
 	}
@@ -61,24 +61,23 @@ static int tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
  * Freed slots can sit in front of the flow, so search all ways before claiming a free one; free slots still hold their old
  * tuple and must not match. Returns NULL if the bucket is full of other flows or another EU took the free slot first. */
 static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t hash) {
-	struct flow *bucket = &((struct flow *)c->flows)[hash & FLOW_MASK & ~(FLOW_WAYS - 1)];
+	int index = hash & FLOW_MASK & ~(FLOW_WAYS - 1);
+	struct flow *bucket = &((struct flow *)c->flows)[index];
 	struct flow *free_slot = NULL;
 
 	for (unsigned int i = 0; i < FLOW_WAYS; i++) {
 		struct flow *f = &bucket[i];
 
 		if (f->state == FLOW_STATE_NEW) {
-			if (!free_slot) {
+			if (free_slot == NULL) {
 				free_slot = f;
 			}
 		} else if (f->hash == hash && tuple_eq(&f->t, t)) {
 			return f; // return a flow that is known
 		}
 	}
-	if (free_slot && flow_claim(free_slot)) {
+	if (free_slot != NULL && flow_lock(free_slot) == 1) {
 		struct flow *f = free_slot;
-
-		// the slot may have held another flow, so every feature starts over
 		f->t = *t;
 		f->hash = hash;
 		f->total_bytes = 0;
@@ -98,8 +97,6 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 	return NULL;
 }
 
-/* Another EU may claim the slot right after the store and write its tuple a few cycles later; until then the old tuple
- * would still match this flow's next packet. Breaking the hash first prevents that: a tuple only matches its own hash. */
 static void flow_free(struct pkt_ctx *c, struct flow *f) {
 	f->hash ^= 1;
 	c->used--;
@@ -139,7 +136,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			f->total_pkts++;
 
 			// a flow passes this count only once: benign ones restart from 0 in a new slot, malicious ones keep counting
-			if (f->total_pkts == CLS_MIN_PKTS) {
+			if (f->total_pkts >= CLS_MIN_PKTS) {
 				// TODO inference: score f's features with the model, store the output in f->suspicion_score
 				int malicious = 0;
 
