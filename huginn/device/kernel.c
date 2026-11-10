@@ -98,9 +98,8 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 }
 
 static void flow_free(struct pkt_ctx *c, struct flow *f) {
-	f->hash ^= 1;
+	f->hash ^= 1; // flip a bit to make the flow's hash different from its tuple, so other EUs won't match it anymore
 	c->used--;
-	// release: none of our writes to the slot may land after the next owner's initialisation
 	__atomic_store_n(&f->state, FLOW_STATE_NEW, __ATOMIC_RELEASE);
 }
 
@@ -113,10 +112,12 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 	while (flexio_dev_cqe_get_owner(&ring[c->cq_ci & Q_MASK]) == ((c->cq_ci >> LOG_Q_DEPTH) & 1)) {
 		struct flexio_dev_cqe64 *cqe = &ring[c->cq_ci & Q_MASK];
 		uint32_t idx = flexio_dev_cqe_get_wqe_counter(cqe) & Q_MASK;
+		
 		struct five_tuple t;
-
 		parse_five_tuple((uint8_t *)(c->rx_bufs + idx * BUF_BSIZE), flexio_dev_cqe_get_byte_cnt(cqe), &t);
+		
 		struct flow *f = flow_update(c, &t, flow_hash(&t));
+		
 		uint32_t now = (uint32_t)__dpa_thread_time();
 
 		if (f) {
@@ -136,10 +137,9 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			f->total_pkts++;
 
 			// a flow passes this count only once: benign ones restart from 0 in a new slot, malicious ones keep counting
-			if (f->total_pkts >= CLS_MIN_PKTS) {
-				// TODO inference: score f's features with the model, store the output in f->suspicion_score
+			if (f->total_pkts >= NUM_PCKGS_BEFORE_CLASSIFICATION) {
 				int malicious = 0;
-
+				// TODO: inference
 				if (malicious) {
 					__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED); // other EUs read it concurrently
 				} else {

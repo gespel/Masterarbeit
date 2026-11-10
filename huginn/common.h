@@ -20,7 +20,7 @@
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
 #define LOG_FLOW_WAYS  2 // the hash picks a bucket of 2^LOG_FLOW_WAYS adjacent slots, a flow only ever lives inside its bucket
 #define FLOW_WAYS      (1u << LOG_FLOW_WAYS)
-#define CLS_MIN_PKTS   8 // a flow is classified on its CLS_MIN_PKTS-th packet; benign ones free their slot right away
+#define NUM_PCKGS_BEFORE_CLASSIFICATION   8 // a flow is classified on its CLS_MIN_PKTS-th packet; benign ones free their slot right away
 
 typedef enum FlowState {
 	FLOW_STATE_NEW = 0,
