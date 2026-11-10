@@ -13,6 +13,14 @@
 
 #define DOCA_TRY(x) do { if (x) { fprintf(stderr, "%s failed\n", #x); exit(1); } } while (0)
 
+/* ANSI colors for the stats line */
+#define C_GRN "\033[1;32m"
+#define C_YEL "\033[1;33m"
+#define C_CYN "\033[1;36m"
+#define C_RED "\033[1;31m"
+#define C_MAG "\033[1;35m"
+#define C_RST "\033[0m"
+
 #define Q_DEPTH      (1u << LOG_Q_DEPTH)
 #define DPA_HZ       1.8e9
 #define EUS_PER_CORE 16
@@ -248,7 +256,7 @@ int main() {
 
 	struct timespec t0, now;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	uint64_t last = 0, last_coll = 0, last_inferred = 0;
+	uint64_t last = 0, last_coll = 0, last_inferred = 0, last_mal = 0;
 	double last_t = 0;
 	int duration = 0;
 	while (1) {
@@ -262,13 +270,20 @@ int main() {
 		/* the RPC takes time too, so stamp every interval with the real time */
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		double t = (now.tv_sec - t0.tv_sec) + (now.tv_nsec - t0.tv_nsec) * 1e-9;
-		uint64_t count = st.count, cycles = st.cycles, used = st.used, coll = st.collisions, inferred = st.inferred;
+		uint64_t count = st.count, cycles = st.cycles, used = st.used, coll = st.collisions, inferred = st.inferred, mal = st.malicious;
 		/* share of this interval's packets that found their bucket full and belong to no flow */
 		double coll_pct = count > last ? 100.0 * (coll - last_coll) / (count - last) : 0.0;
+		/* share of this interval's classified flows that the model flagged as malicious */
+		double mal_pct = inferred > last_inferred ? 100.0 * (mal - last_mal) / (inferred - last_inferred) : 0.0;
 		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%\n",
 			((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
 			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct);*/
-		fprintf(stderr, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%, inferred: %f million flows/s\n",
+		fprintf(stderr, 
+				"million pkt/s: " C_GRN "%.2f" C_RST
+				", cycles/pkt: " C_YEL "%.1f" C_RST
+				", flow table: " C_CYN "%lu/%u (%.1f%%)" C_RST
+				", collisions: " C_RED "%.3f%%" C_RST
+				", inferred: " C_MAG "%f" C_RST " million flows/s\n",
 			((count - last) / (t - last_t)) / 1000000, 
 			count ? (double)cycles / count : 0.0,
 			used, 
@@ -281,6 +296,7 @@ int main() {
 		last_coll = coll;
 		last_t = t;
 		last_inferred = inferred;
+		last_mal = mal;
 		//duration += 1;
 		//if (duration >= 30) {
 		//	break;

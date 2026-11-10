@@ -39,6 +39,7 @@ struct pkt_ctx {
 	uint64_t collisions;
 	uint64_t used;
 	uint64_t inferred;
+	uint64_t malicious;
 };
 
 struct stats {
@@ -47,6 +48,7 @@ struct stats {
 	uint64_t used;
 	uint64_t collisions;
 	uint64_t inferred;
+	uint64_t malicious;
 };
 
 struct five_tuple {
@@ -73,6 +75,8 @@ struct flow {
 	uint32_t psh_count;
 	uint32_t fin_count;
 
+	uint16_t pkt_min;
+	uint16_t pkt_max;
 	uint16_t suspicion_score;
 };
 

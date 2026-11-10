@@ -5,6 +5,9 @@
 #include <dpaintrin.h>
 #include <stddef.h>
 #include "../common.h"
+#include "../model-compiler/model.h"
+
+#define NN_FEATURES 10
 
 static inline uint16_t read_u16(const uint8_t *p) {
 	uint16_t v;
@@ -90,6 +93,8 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 		f->rst_count = 0;
 		f->psh_count = 0;
 		f->fin_count = 0;
+		f->pkt_min = 0xffff;
+		f->pkt_max = 0;
 		f->suspicion_score = 0;
 		c->used++;
 		return f;
@@ -102,6 +107,39 @@ static void flow_free(struct pkt_ctx *c, struct flow *f) {
 	f->hash ^= 1; // flip a bit to make the flow's hash different from its tuple, so other EUs won't match it anymore
 	c->used--;
 	__atomic_store_n(&f->state, FLOW_STATE_NEW, __ATOMIC_RELEASE);
+}
+
+/* Saturates v to the int8 input range 0..127 (Q0.7, like the weights). */
+static inline int8_t q_lin(uint32_t v) {
+	return v > 127 ? 127 : (int8_t)v;
+}
+
+/* Compresses a 32-bit value logarithmically to 0..127: 4 steps per power of two
+ * (bit length plus the two bits after the leading one); 0 and 1 both map to 0. */
+static inline int8_t q_log2(uint32_t v) {
+	if (v == 0) {
+		return 0;
+	}
+	unsigned lz = __builtin_clz(v);
+	uint32_t frac = (lz == 31) ? 0 : (v << (lz + 1)) >> 30;
+	return (int8_t)((31 - lz) * 4 + frac);
+}
+
+/* Feature order as in training. The scaling is a placeholder until it matches the training preprocessing. */
+static void extract_features(const struct flow *f, int8_t in[NN_FEATURES]) {
+	uint32_t n = f->total_pkts;
+	uint32_t iat_mean = n > 1 ? f->iat_sum / (n - 1) : 0;
+
+	in[0] = q_lin(n);                     /* Number of Packets */
+	in[1] = q_lin(f->t.src_port >> 9);    /* Source Port */
+	in[2] = q_lin(f->t.dst_port >> 9);    /* Destination Port */
+	in[3] = q_lin(f->total_bytes / n >> 4); /* Average Packet Size */
+	in[4] = q_lin(f->pkt_min >> 4);       /* Minimum Packet Size */
+	in[5] = q_lin(f->pkt_max >> 4);       /* Maximum Packet Size */
+	in[6] = q_log2(f->total_bytes);       /* Total Bytes */
+	in[7] = q_log2(f->iat_min);           /* IAT Min (µs) */
+	in[8] = q_log2(f->iat_max);           /* IAT Max (µs) */
+	in[9] = q_log2(iat_mean);             /* IAT Mean (µs) */
 }
 
 flexio_dev_event_handler_t pkt_handler;
@@ -133,19 +171,33 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 					f->iat_max = iat;
 				}
 			}
+			uint32_t len = flexio_dev_cqe_get_byte_cnt(cqe);
+			uint16_t len16 = len > 0xffff ? 0xffff : (uint16_t)len;
+
+			if (len16 < f->pkt_min) {
+				f->pkt_min = len16;
+			}
+			if (len16 > f->pkt_max) {
+				f->pkt_max = len16;
+			}
 			f->last_seen = now;
-			f->total_bytes += flexio_dev_cqe_get_byte_cnt(cqe);
+			f->total_bytes += len;
 			f->total_pkts++;
 			f->rst_count += t.rst;
 			f->psh_count += t.psh;
 			f->fin_count += t.fin;
 
-			if (f->total_pkts >= NUM_PCKGS_BEFORE_CLASSIFICATION) {
-				int malicious = 0;
-				// TODO: inference
+			if (f->total_pkts == NUM_PCKGS_BEFORE_CLASSIFICATION) {
+				int8_t in[NN_FEATURES], out[NN_H4];
+
+				extract_features(f, in);
+				neural_network(in, out);
+				int malicious = out[0] > 64;
 				c->inferred++;
+				c->malicious += malicious;
 				if (malicious) {
-					__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED); // other EUs read it concurrently
+					//__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED); // other EUs read it concurrently
+					flow_free(c, f);
 				} else {
 					flow_free(c, f);
 				}
@@ -170,7 +222,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out) {
 	const uint64_t *ctx = (const uint64_t *)ctxs;
 	struct stats *s = (struct stats *)out;
-	uint64_t count = 0, cycles = 0, used = 0, collisions = 0, inferred = 0;
+	uint64_t count = 0, cycles = 0, used = 0, collisions = 0, inferred = 0, malicious = 0;
 
 	for (uint64_t eu = 0; eu < num_eus; eu++) {
 		struct pkt_ctx *c = (struct pkt_ctx *)ctx[eu];
@@ -180,12 +232,14 @@ __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out
 		collisions += c->collisions;
 		used += c->used;
 		inferred += c->inferred;
+		malicious += c->malicious;
 	}
 	s->count = count;
 	s->cycles = cycles;
 	s->used = used;
 	s->collisions = collisions;
 	s->inferred = inferred;
+	s->malicious = malicious;
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 	return 0;
 }
