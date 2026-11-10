@@ -57,9 +57,6 @@ static int tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
 	return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip && a->src_port == b->src_port && a->dst_port == b->dst_port && a->proto == b->proto;
 }
 
-/* Set-associative lookup: the hash picks a bucket of FLOW_WAYS adjacent slots and the flow lives in one of them or nowhere.
- * Freed slots can sit in front of the flow, so search all ways before claiming a free one; free slots still hold their old
- * tuple and must not match. Returns NULL if the bucket is full of other flows or another EU took the free slot first. */
 static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t hash) {
 	int index = hash & FLOW_MASK & ~(FLOW_WAYS - 1);
 	struct flow *bucket = &((struct flow *)c->flows)[index];
@@ -136,7 +133,6 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			f->total_bytes += flexio_dev_cqe_get_byte_cnt(cqe);
 			f->total_pkts++;
 
-			// a flow passes this count only once: benign ones restart from 0 in a new slot, malicious ones keep counting
 			if (f->total_pkts >= NUM_PCKGS_BEFORE_CLASSIFICATION) {
 				int malicious = 0;
 				// TODO: inference

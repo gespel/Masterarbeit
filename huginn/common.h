@@ -18,9 +18,9 @@
 #define HASH_SEED      0x9e3779b9u
 #define LOG_FLOW_ENTRIES 23
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
-#define LOG_FLOW_WAYS  2 // the hash picks a bucket of 2^LOG_FLOW_WAYS adjacent slots, a flow only ever lives inside its bucket
+#define LOG_FLOW_WAYS  2
 #define FLOW_WAYS      (1u << LOG_FLOW_WAYS)
-#define NUM_PCKGS_BEFORE_CLASSIFICATION   8 // a flow is classified on its CLS_MIN_PKTS-th packet; benign ones free their slot right away
+#define NUM_PCKGS_BEFORE_CLASSIFICATION 8
 
 typedef enum FlowState {
 	FLOW_STATE_NEW = 0,
@@ -49,7 +49,6 @@ struct stats {
 	uint64_t inferred;
 };
 
-// Canonical form: src is the lower endpoint, not the sender, so both directions of a connection compare equal.
 struct five_tuple {
 	uint32_t src_ip, dst_ip;
 	uint16_t src_port, dst_port;
