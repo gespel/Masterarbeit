@@ -27,9 +27,13 @@ static void parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple
 	t->dst_ip   = read_u32(ip + IP_DST);
 	t->src_port = 0;
 	t->dst_port = 0;
+
 	if ((t->proto == IPPROTO_TCP || t->proto == IPPROTO_UDP) && !(read_u16(ip + IP_FRAG) & IP_FRAG_OFFSET) && ip_hdr_len >= 20 && len >= ETH_HDR_LEN + ip_hdr_len + 4) {
 		t->src_port = read_u16(ip + ip_hdr_len);
 		t->dst_port = read_u16(ip + ip_hdr_len + 2);
+		t->rst = ip[ip_hdr_len + 13] & 0x04;
+		t->psh = ip[ip_hdr_len + 13] & 0x08;
+		t->fin = ip[ip_hdr_len + 13] & 0x01;
 	}
 
 	if (t->src_ip > t->dst_ip || (t->src_ip == t->dst_ip && t->src_port > t->dst_port)) {
@@ -58,11 +62,11 @@ static int tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
 }
 
 static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t hash) {
-	int index = hash & FLOW_MASK & ~(FLOW_WAYS - 1);
+	int index = hash & FLOW_MASK & ~(FLOW_BUCKET_SIZE - 1);
 	struct flow *bucket = &((struct flow *)c->flows)[index];
 	struct flow *free_slot = NULL;
 
-	for (unsigned int i = 0; i < FLOW_WAYS; i++) {
+	for (unsigned int i = 0; i < FLOW_BUCKET_SIZE; i++) {
 		struct flow *f = &bucket[i];
 
 		if (f->state == FLOW_STATE_NEW) {
@@ -132,6 +136,9 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			f->last_seen = now;
 			f->total_bytes += flexio_dev_cqe_get_byte_cnt(cqe);
 			f->total_pkts++;
+			f->rst_count += t.rst;
+			f->psh_count += t.psh;
+			f->fin_count += t.fin;
 
 			if (f->total_pkts >= NUM_PCKGS_BEFORE_CLASSIFICATION) {
 				int malicious = 0;

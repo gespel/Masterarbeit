@@ -252,7 +252,8 @@ int main() {
 	double last_t = 0;
 	int duration = 0;
 	while (1) {
-		sleep(1);
+		usleep(500000);
+		//system("clear");
 		flexio_msg_stream_flush(stream);
 
 		uint64_t ret;

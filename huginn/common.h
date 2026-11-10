@@ -18,8 +18,8 @@
 #define HASH_SEED      0x9e3779b9u
 #define LOG_FLOW_ENTRIES 23
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
-#define LOG_FLOW_WAYS  2
-#define FLOW_WAYS      (1u << LOG_FLOW_WAYS)
+
+#define FLOW_BUCKET_SIZE 8
 #define NUM_PCKGS_BEFORE_CLASSIFICATION 8
 
 typedef enum FlowState {
@@ -53,6 +53,9 @@ struct five_tuple {
 	uint32_t src_ip, dst_ip;
 	uint16_t src_port, dst_port;
 	uint8_t  proto;
+	uint8_t rst;
+	uint8_t psh;
+	uint8_t fin;
 };
 
 struct flow {
