@@ -3,6 +3,7 @@
 #include <libflexio-dev/flexio_dev.h>
 #include <libflexio-dev/flexio_dev_queue_access.h>
 #include <dpaintrin.h>
+#include <stddef.h>
 #include "../common.h"
 
 static inline uint16_t read_u16(const uint8_t *p) {
@@ -31,7 +32,6 @@ static void parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple
 		t->dst_port = read_u16(ip + ip_hdr_len + 2);
 	}
 
-	// order the endpoints so that both directions of a connection yield the same tuple and thus the same flow entry
 	if (t->src_ip > t->dst_ip || (t->src_ip == t->dst_ip && t->src_port > t->dst_port)) {
 		uint32_t ip_tmp = t->src_ip;
 		uint16_t port_tmp = t->src_port;
@@ -43,30 +43,109 @@ static void parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple
 	}
 }
 
+static int flow_claim(struct flow *f) {
+	if (f->state != FLOW_STATE_NEW) {
+		return 0;
+	}
+	if (__atomic_exchange_n(&f->state, FLOW_STATE_KNOWN, __ATOMIC_ACQUIRE) == FLOW_STATE_NEW) {
+		return 1;
+	}
+	return 0;
+}
+
+static int tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
+	return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip && a->src_port == b->src_port && a->dst_port == b->dst_port && a->proto == b->proto;
+}
+
+static void flow_init(struct pkt_ctx *c, struct flow *f, const struct five_tuple *t, uint32_t hash) {
+	f->t = *t;
+	f->hash = hash;
+	f->total_bytes = 0;
+	f->total_pkts = 0;
+	f->iat_min = 0;
+	f->iat_max = 0;
+	f->iat_sum = 0;
+	f->last_seen = 0;
+	f->rst_count = 0;
+	f->psh_count = 0;
+	f->fin_count = 0;
+	f->suspicion_score = 0;
+
+	f->next = c->first;
+	c->first = f;
+	c->used++;
+}
+
 static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t hash) {
-	struct flow *flows = (struct flow *)c->flows;
-	struct flow *f;
+	struct flow *bucket = &((struct flow *)c->flows)[hash & FLOW_MASK & ~(FLOW_WAYS - 1)];
+	uint32_t free_ways = 0;
 
-	f = &flows[(hash) & FLOW_MASK];
+	for (unsigned int i = 0; i < FLOW_WAYS; i++) {
+		struct flow *f = &bucket[i];
 
-	if (f->state == FLOW_STATE_NEW) {
-		f->t = *t;
-		f->hash = hash;
-		f->state = FLOW_STATE_KNOWN;
-		f->suspicion_score = 0;
-		f->iat_sum = __dpa_thread_cycles();
-		f->iat_min = 0;
-		f->iat_max = 0;
-
-		f->next = c->first;
-		c->first = f;
-		return f;
+		if (f->state == FLOW_STATE_NEW) {
+			free_ways |= 1u << i;
+		} else if (f->hash == hash && tuple_eq(&f->t, t)) {
+			return f;
+		}
 	}
-	if (f->hash == hash && f->t.src_ip == t->src_ip && f->t.dst_ip == t->dst_ip && f->t.src_port == t->src_port && f->t.dst_port == t->dst_port && f->t.proto == t->proto) {
-		return f; // known flow, nothing to do
+	for (unsigned int i = 0; i < FLOW_WAYS; i++) {
+		struct flow *f = &bucket[i];
+
+		if ((free_ways & (1u << i)) && flow_claim(f)) {
+			flow_init(c, f, t, hash);
+			return f;
+		}
 	}
-	// only reached if the flow table is full
-	return f;
+	c->collisions++;
+	return NULL;
+}
+
+static void flow_free(struct pkt_ctx *c, struct flow **link) {
+	struct flow *f = *link;
+
+	*link = f->next;
+	c->used--;
+	c->freed++;
+	f->hash ^= 1;
+	__atomic_store_n(&f->state, FLOW_STATE_NEW, __ATOMIC_RELEASE);
+}
+
+static void flow_classify(struct pkt_ctx *c, struct flow *f) {
+	int malicious = 0;
+
+	c->classified++;
+	if (malicious) {
+		c->malicious++;
+		__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED);
+	} else {
+		__atomic_store_n(&f->state, FLOW_STATE_BENIGN, __ATOMIC_RELAXED);
+	}
+}
+
+/* Walks this EU's own list a few entries per packet, so flows get decided and freed even if no packet of theirs arrives
+ * anymore: classifies flows that went idle before reaching CLS_MIN_PKTS and frees the benign ones. Uses the inference
+ * budget left over by the packet path. */
+static void flow_sweep(struct pkt_ctx *c, uint32_t now, int budget) {
+	for (unsigned int n = 0; n < SWEEP_PER_PKT; n++) {
+		if (!c->sweep || !*c->sweep) { // first call or end of list: start over
+			c->sweep = &c->first;
+		}
+		struct flow *f = *c->sweep;
+
+		if (!f) { // list empty
+			return;
+		}
+		if (budget && f->state == FLOW_STATE_KNOWN && now - f->last_seen > CLS_IDLE_US) {
+			flow_classify(c, f);
+			budget--;
+		}
+		if (f->state == FLOW_STATE_BENIGN) {
+			flow_free(c, c->sweep); // the cursor stays and now leads to the successor
+		} else {
+			c->sweep = &f->next;
+		}
+	}
 }
 
 flexio_dev_event_handler_t pkt_handler;
@@ -82,25 +161,40 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 
 		parse_five_tuple((uint8_t *)(c->rx_bufs + idx * BUF_BSIZE), flexio_dev_cqe_get_byte_cnt(cqe), &t);
 		struct flow *f = flow_update(c, &t, flow_hash(&t));
-		f->total_bytes += flexio_dev_cqe_get_byte_cnt(cqe);
-		f->total_pkts++;
+		uint32_t now = (uint32_t)__dpa_thread_time();
+		int budget = 1;
 
-		uint32_t iat = (uint32_t)(__dpa_thread_cycles() - f->iat_sum);
-		f->iat_sum += iat;
-		if (iat < f->iat_min || f->iat_min == 0) {
-			f->iat_min = iat;
+		if (f) {
+			if (f->total_pkts > 0) {
+				uint32_t iat = now - f->last_seen;
+
+				f->iat_sum += iat;
+				if (f->total_pkts == 1 || iat < f->iat_min) {
+					f->iat_min = iat;
+				}
+				if (iat > f->iat_max) {
+					f->iat_max = iat;
+				}
+			}
+			f->last_seen = now;
+			f->total_bytes += flexio_dev_cqe_get_byte_cnt(cqe);
+			f->total_pkts++;
+
+			// >= rather than ==: a flow is decided on the packet that reaches the threshold, the check just keeps that robust
+			if (f->state == FLOW_STATE_KNOWN && f->total_pkts >= CLS_MIN_PKTS) {
+				flow_classify(c, f);
+				budget--;
+			}
 		}
-		if (iat > f->iat_max) {
-			f->iat_max = iat;
-		}
+		flow_sweep(c, now, budget);
 
 		c->count++;
 		flexio_dev_dbr_cq_set_ci((uint32_t *)c->cq_dbr, ++c->cq_ci);
 		flexio_dev_dbr_rq_inc_pi((uint32_t *)c->rq_dbr);
 
-		uint64_t now = __dpa_thread_cycles(); /* under full load the loop never ends, so account per packet */
-		c->cycles += now - start;
-		start = now;
+		uint64_t now2 = __dpa_thread_cycles();
+		c->cycles += now2 - start;
+		start = now2;
 	}
 
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
@@ -109,17 +203,29 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 	flexio_dev_thread_reschedule();
 }
 
-__dpa_rpc__ uint64_t read_u64(uint64_t addr) {
-	return *(uint64_t *)addr;
-}
+__dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out) {
+	const uint64_t *ctx = (const uint64_t *)ctxs;
+	struct stats *s = (struct stats *)out;
+	uint64_t count = 0, cycles = 0, used = 0, collisions = 0, classified = 0, malicious = 0, freed = 0;
 
-__dpa_rpc__ uint64_t flow_table_fill(uint64_t ctx) {
-	struct flow *f = ((struct pkt_ctx *)ctx)->first;
-	uint64_t used = 0;
+	for (uint64_t eu = 0; eu < num_eus; eu++) {
+		struct pkt_ctx *c = (struct pkt_ctx *)ctx[eu];
 
-	while (f) {
-		used++;
-		f = f->next;
+		count += c->count;
+		cycles += c->cycles;
+		collisions += c->collisions;
+		used += c->used;
+		classified += c->classified;
+		malicious += c->malicious;
+		freed += c->freed;
 	}
-	return used;
+	s->count = count;
+	s->cycles = cycles;
+	s->used = used;
+	s->collisions = collisions;
+	s->classified = classified;
+	s->malicious = malicious;
+	s->freed = freed;
+	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
+	return 0;
 }

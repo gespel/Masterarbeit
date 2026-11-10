@@ -16,7 +16,7 @@
 #define Q_DEPTH      (1u << LOG_Q_DEPTH)
 #define DPA_HZ       1.8e9
 #define EUS_PER_CORE 16
-#define NUM_CORES    10
+#define NUM_CORES    11
 #define NUM_EUS      (NUM_CORES * EUS_PER_CORE)
 /* Offset in the outer-header part of the match buffer (PRM fte_match_set_lyr_2_4) */
 #define MATCH_IP_PROTOCOL 0x10
@@ -42,19 +42,12 @@
 static struct flexio_process *proc;
 
 extern flexio_func_t pkt_handler;
-extern flexio_func_t read_u64;
-extern flexio_func_t flow_table_fill;
+extern flexio_func_t collect_stats;
 
 static flexio_uintptr_t to_dpa(void *src, size_t len) {
 	flexio_uintptr_t daddr;
 	DOCA_TRY(flexio_copy_from_host(proc, src, len, &daddr));
 	return daddr;
-}
-
-static uint64_t dpa_u64(flexio_uintptr_t daddr) {
-	uint64_t v;
-	DOCA_TRY(flexio_process_call(proc, &read_u64, &v, daddr));
-	return v;
 }
 
 static struct ibv_context *open_ibv(const char *name) {
@@ -174,7 +167,7 @@ static struct mlx5dv_devx_obj *create_rss_tir(struct ibv_context *ibv, const uin
 
 /* Starts pkt_handler on EUs 0..NUM_EUS-1 (cores 0..NUM_CORES-1), all sharing one flow table, and writes their contexts to ctx.
  * TCP is spread over all EUs by symmetric RSS, all other packets go to EU 0. Both directions of a flow thus share one EU:
- * flow entries keep a single writer and the per-EU cycle counter stays comparable for the IAT. */
+ * flow entries keep a single writer and the per-EU timer stays comparable for the IAT. */
 static void steer_flows(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uintptr_t *ctx) {
 	struct flexio_rq *rq[NUM_EUS];
 	uint32_t rqn[NUM_EUS];
@@ -245,38 +238,45 @@ int main() {
 	flexio_uintptr_t ctx[NUM_EUS];
 	steer_flows(ibv, pd, ctx);
 
+	/* collect_stats sums all EUs on the DPA into a DPA buffer, which flexio_memcpy then copies to the host */
+	flexio_uintptr_t ctxs = to_dpa(ctx, sizeof(ctx));
+	flexio_uintptr_t st_daddr;
+	DOCA_TRY(flexio_buf_dev_alloc(proc, sizeof(struct stats), &st_daddr));
+	struct stats st;
+	struct flexio_mem st_src = { .mem_type = FLEXIO_MEMTYPE_DPA, .daddr = st_daddr };
+	struct flexio_mem st_dst = { .mem_type = FLEXIO_MEMTYPE_HOST, .haddr = (uintptr_t)&st };
+
 	struct timespec t0, now;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	uint64_t last = 0;
+	uint64_t last = 0, last_coll = 0;
 	double last_t = 0;
 	int duration = 0;
 	while (1) {
-		uint64_t count = 0, cycles = 0, used = 0;
-
 		sleep(1);
 		flexio_msg_stream_flush(stream);
-		/* the RPCs below take time too, so stamp every interval with the real time */
+
+		uint64_t ret;
+		DOCA_TRY(flexio_process_call(proc, &collect_stats, &ret, ctxs, (uint64_t)NUM_EUS, st_daddr));
+		DOCA_TRY(flexio_memcpy(proc, &st_src, &st_dst, sizeof(st)));
+		/* the RPC takes time too, so stamp every interval with the real time */
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		double t = (now.tv_sec - t0.tv_sec) + (now.tv_nsec - t0.tv_nsec) * 1e-9;
-		for (unsigned int eu = 0; eu < NUM_EUS; eu++) {
-			count += dpa_u64(ctx[eu] + offsetof(struct pkt_ctx, count));
-			cycles += dpa_u64(ctx[eu] + offsetof(struct pkt_ctx, cycles));
-
-			uint64_t eu_used;
-			DOCA_TRY(flexio_process_call(proc, &flow_table_fill, &eu_used, ctx[eu]));
-			used += eu_used;
-		}
-		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%)\n",
+		uint64_t count = st.count, cycles = st.cycles, used = st.used, coll = st.collisions;
+		uint64_t cls = st.classified, mal = st.malicious, freed = st.freed;
+		/* share of this interval's packets that found their bucket full and belong to no flow */
+		double coll_pct = count > last ? 100.0 * (coll - last_coll) / (count - last) : 0.0;
+		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%, classified: %lu, malicious: %lu, freed: %lu\n",
 			((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
-			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES));*/
-		fprintf(stderr, "measurement: %d, million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%)\n",
+			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct, cls, mal, freed);*/
+		fprintf(stderr, "measurement: %d, million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%, classified: %lu, malicious: %lu, freed: %lu\n",
 			duration, ((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
-			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES));
+			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct, cls, mal, freed);
 		last = count;
+		last_coll = coll;
 		last_t = t;
-		/*duration += 1;
-		if (duration >= 30) {
-			break;
-		}*/
+		//duration += 1;
+		//if (duration >= 30) {
+		//	break;
+		//}
 	}
 }

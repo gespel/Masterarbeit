@@ -16,25 +16,46 @@
 #define IPPROTO_TCP    6
 #define IPPROTO_UDP    17
 #define HASH_SEED      0x9e3779b9u
-#define LOG_FLOW_ENTRIES 22
+#define LOG_FLOW_ENTRIES 23
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
-#define MAX_TABLE_WALK_DISTANCE 2
+#define LOG_FLOW_WAYS  2 // the hash picks a bucket of 2^LOG_FLOW_WAYS adjacent slots, a flow only ever lives inside its bucket
+#define FLOW_WAYS      (1u << LOG_FLOW_WAYS)
+#define CLS_MIN_PKTS   8       // a flow is classified on the packet that brings it to this many packets
+#define CLS_IDLE_US    1000000 // or by the sweep once it has been idle this long (µs ticks of __dpa_thread_time)
+#define SWEEP_PER_PKT  2       // own list entries the sweep visits per received packet
 
 typedef enum FlowState {
 	FLOW_STATE_NEW = 0,
 	FLOW_STATE_KNOWN = 1,
 	FLOW_STATE_SUSPICIOUS = 2,
+	FLOW_STATE_BENIGN = 3,
 } FlowState;
 
 struct pkt_ctx {
-	uint64_t cq_ring, cq_dbr, rq_dbr; // DPA addresses
-	uint64_t rx_bufs; // DPA address of the RX buffers
-	uint64_t flows; // DPA address of the flow table, indexed by hash & FLOW_MASK
-	uint32_t cq_num; // CQ number, needed to arm the CQ
-	uint32_t cq_ci;  // CQ consumer index
-	uint64_t count;  // received packets
-	uint64_t cycles; // DPA cycles spent in pkt_handler
-	struct flow *first;
+	uint64_t cq_ring, cq_dbr, rq_dbr;
+	uint64_t rx_bufs;
+	uint64_t flows;
+	uint32_t cq_num;
+	uint32_t cq_ci;
+	uint64_t count;
+	uint64_t cycles;
+	uint64_t collisions; // packets whose bucket was full of other flows, they are counted but belong to no flow
+	uint64_t used;       // slots this EU holds now
+	uint64_t classified;
+	uint64_t malicious;
+	uint64_t freed;
+	struct flow *first;  // this EU's slots, newest first
+	struct flow **sweep; // sweep cursor: the link that leads to the next entry to visit, NULL = start at first
+};
+
+struct stats {
+	uint64_t count;
+	uint64_t cycles;
+	uint64_t used;
+	uint64_t collisions;
+	uint64_t classified;
+	uint64_t malicious;
+	uint64_t freed;
 };
 
 // Canonical form: src is the lower endpoint, not the sender, so both directions of a connection compare equal.
@@ -54,6 +75,7 @@ struct flow {
 	uint32_t iat_min;
 	uint32_t iat_max;
 	uint32_t iat_sum;
+	uint32_t last_seen;
 	uint32_t rst_count;
 	uint32_t psh_count;
 	uint32_t fin_count;
