@@ -71,20 +71,20 @@ class ModelCompiler:
                 #print(f"Layer: {name}, Weight shape: {weight.shape}")
                 defines += f"#define NN_H{i} {weight.shape[1]}\n"
 
-                weight_defs += f"    int8_t w{i+1}[NN_H{i} * NN_H{i+1}] = {{"
+                weight_defs += f"    static const int8_t w{i+1}[NN_H{i} * NN_H{i+1}] = {{"
                 for j in range(weight.numel()):
                     weight_defs += f"{self.f32_to_int8(weight.view(-1)[j].item())}, "
                 weight_defs = weight_defs[:-2]
                 weight_defs += "};\n"
 
-                bias_defs += f"    int8_t b{i+1}[NN_H{i+1}] = {{"
+                bias_defs += f"    static const int8_t b{i+1}[NN_H{i+1}] = {{"
                 for j in range(bias.numel()):
                     bias_defs += f"{self.f32_to_int8(bias.view(-1)[j].item())}, "
                 bias_defs = bias_defs[:-2]
                 bias_defs += "};\n"
 
                 if i != 0:
-                    values_defs += f"    int8_t v{i}[NN_H{i}] = {{0}};\n"
+                    values_defs += f"    static int8_t v{i}[NN_H{i}] = {{0}};\n"
 
                 i += 1
         defines += f"#define NN_H{i} {model.layers[len(model.layers)-1].out_features}\n"
