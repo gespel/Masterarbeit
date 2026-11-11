@@ -1,0 +1,93 @@
+from scapy.all import *
+import datetime
+import argparse
+import os
+import colored
+import subprocess
+import sys
+import logging
+from flowextractor.dataset.flow import FlowTableManager
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("FlowRecorder")
+
+
+class PacketRecorder:
+    def __init__(self):
+        self.packets = []
+
+    def save_packets_to_file(self, file_path: str):
+        if self.packets:
+            wrpcap(file_path, self.packets, append=True)
+            logger.info(colored.fg("green") + f"Saved {len(self.packets)} packets to {file_path}" + colored.attr("reset"))
+            subprocess.run(["chmod", "777", file_path])
+        else:
+            logger.info("No packets to save.")
+
+    def record(self, length: int, save_output: bool, mode: str):
+        flow_table = FlowTableManager()
+        i = 0
+
+        attacker_ip = input("Enter the attacker IP for Slowloris detection: ")
+
+        if length == None:
+            logger.info(colored.fg("green") + "Recording packets indefinitely..." + colored.attr("reset"))
+            while True:
+                i += 1
+                self.packets = sniff(timeout=3)
+
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                readable_timestamp = datetime.datetime.now().strftime("%H:%M:%S %d-%m-%Y")
+
+                logger.info(f"Recorded {colored.fg('green')}{len(self.packets)}{colored.attr('reset')} packets at {colored.fg('magenta')}{readable_timestamp}{colored.attr('reset')}")
+
+                flow_table.add_packets(self.packets)
+                if mode == "ssh_brute":
+                    flow_table.label_ssh_flows()
+                elif mode == "slowloris":
+                    flow_table.label_slowloris_flows(attacker_ip)
+                elif mode == "gobuster":
+                    flow_table.label_gobuster_flows(attacker_ip)
+                else:
+                    logger.warning("No attack specified. All traffic will be marked as benign!")
+
+                #if i % 10 == 0:
+                #    flow_table.print_flow_table_summary()
+
+                if i % 10 == 0:
+                    flow_table.write_flow_vectors_to_csv(f"flow_vectors.csv")
+                    i = 0
+
+                if save_output:
+                    self.save_packets_to_file(f"recorded_packets_{timestamp}.pcap")
+        else:
+            self.packets = sniff(timeout=length)
+
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            flow_table.add_packets(self.packets)
+            flow_table.label_ssh_flows()
+            flow_table.print_flow_table_summary()
+            flow_table.write_flow_vectors_to_csv(f"flow_vectors_{timestamp}.csv")
+
+            if save_output:
+                self.save_packets_to_file(f"recorded_packets_{timestamp}.pcap")
+
+
+def main():
+    if os.geteuid() != 0:
+        logger.info("This script requires root privileges. Re-running with sudo...")
+        subprocess.run(["uv", "sync"])
+        subprocess.run(["sudo", ".venv/bin/python3", "-m", "src.flowextractor.tools.recorder"] + sys.argv[1:])
+        return
+    arg_parser = argparse.ArgumentParser(description="Record packets for a specified duration.")
+    arg_parser.add_argument("--record_length", type=int, help="Length of time to record packets in seconds")
+    arg_parser.add_argument("--save_output", type=bool, help="Whether to save the recorded packets to a file")
+    arg_parser.add_argument("--mode", type=str, help="Defines the mode of operation for flow recording")
+    args = arg_parser.parse_args()
+
+    recorder = PacketRecorder()
+    recorder.record(length=args.record_length, save_output=args.save_output, mode=args.mode)
+
+if __name__ == "__main__":
+    main()

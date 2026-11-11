@@ -1,0 +1,67 @@
+from flowextractor.model.model import *
+from flowextractor.dataset.flow import *
+from flowextractor.model.transformer import quantize_input
+import argparse
+import pandas
+import torch
+import tqdm
+import random
+
+class FlowGuard:
+    def __init__(self, model_path):
+        self.model = torch.load(model_path, weights_only=False)
+
+    def get_model(self):
+        return self.model
+
+    def predict(self, flow_features):
+        with torch.no_grad():
+            flow_tensor = torch.tensor(flow_features, dtype=torch.float32)
+            if hasattr(self.model, "input_scale"):
+                # integer model: quantize the input and scale the integer output back to a logit
+                output = self.model(quantize_input(self.model, flow_tensor)) / self.model.layers[-1].output_scale
+            else:
+                output = self.model(flow_tensor)
+            prediction = torch.sigmoid(output).item()
+            return prediction
+
+
+def main():
+    argparser = argparse.ArgumentParser(description="FlowGuard: A tool for detecting attacks in network flows using a trained neural network model.")
+    argparser.add_argument("--model_path", type=str, required=True, help="Path to the trained model file.")
+    argparser.add_argument("--sample_number", type=int, default=1000, help="Number of samples to perform inference on.")
+    argparser.add_argument("--live", type=bool, default=False, help="Activates the live guarding for ingress traffic")
+    args = argparser.parse_args()
+
+    flow_guard = FlowGuard(args.model_path)
+    print("FlowGuard initialized with model:", args.model_path)
+
+    if args.live:
+        pass
+    else:
+        test_data = pandas.read_csv("flow_vectors.csv")
+
+    if args.sample_number > len(test_data):
+        print(f"Error: Not enough samples to probe {args.sample_number} from it")
+        return
+    random_start_index = random.randint(0, len(test_data)-args.sample_number)
+
+    test_data_normalized = normalize_training_data(test_data)[random_start_index:random_start_index+args.sample_number]
+    x_test = test_data_normalized[FEATURE_COLUMNS].to_numpy()
+    
+    num_malicious = 0
+    num_benign = 0
+    
+    for x in tqdm.tqdm(x_test):
+        prediction = flow_guard.predict(x)
+        #print(f"Flow Features: {x}, Prediction: {prediction:.4f}")
+        if prediction >= 0.5:
+            num_malicious += 1
+        else:
+            num_benign += 1
+
+    print(f"Number of Malicious Flows: {num_malicious}")
+    print(f"Number of Benign Flows: {num_benign}")
+
+if __name__ == "__main__":
+    main()

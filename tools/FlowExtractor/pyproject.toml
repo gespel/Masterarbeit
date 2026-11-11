@@ -1,0 +1,42 @@
+[project]
+name = "flowextractor"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "colored>=2.3.2",
+    "matplotlib>=3.11.2",
+    "pandas>=3.0.5",
+    "paramiko>=5.0.0",
+    "requests>=2.34.2",
+    "scapy>=2.7.0",
+    "termcolor>=3.3.0",
+    "torch>=2.14.0",
+    "tqdm>=4.70.0",
+    "triton-rocm>=3.8.0 ; sys_platform == 'linux'",
+]
+
+[project.scripts]
+flowextractor = "flowextractor.tools.main:main"
+flowrecorder = "flowextractor.tools.recorder:main"
+flowmodel = "flowextractor.model.model:main"
+flowguard = "flowextractor.tools.guard:main"
+modeltransformer = "flowextractor.model.transformer:main"
+benignssh = "flowextractor.generators.benign_ssh:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flowextractor"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-rocm", marker = "sys_platform == 'linux'" }
+triton-rocm = { index = "pytorch-rocm", marker = "sys_platform == 'linux'" }
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm7.2"
+explicit = true
