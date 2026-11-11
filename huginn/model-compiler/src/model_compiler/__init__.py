@@ -1,6 +1,6 @@
 import torch
 
-LAYER_FUNCTION = """static void layer(const int8_t *in, const int8_t *w, const int8_t *b, int8_t *out, int rows, int cols, int relu) {
+LAYER_FUNCTION = """static void layer(const int16_t *in, const int16_t *w, const int16_t *b, int16_t *out, int rows, int cols, int relu) {
     for (int r = 0; r < rows; r++) {
         int32_t acc = 0;
         for (int c = 0; c < cols; c++)
@@ -71,27 +71,27 @@ class ModelCompiler:
                 #print(f"Layer: {name}, Weight shape: {weight.shape}")
                 defines += f"#define NN_H{i} {weight.shape[1]}\n"
 
-                weight_defs += f"    static const int8_t w{i+1}[NN_H{i} * NN_H{i+1}] = {{"
+                weight_defs += f"    static const int16_t w{i+1}[NN_H{i} * NN_H{i+1}] = {{"
                 for j in range(weight.numel()):
-                    weight_defs += f"{self.f32_to_int8(weight.view(-1)[j].item())}, "
+                    weight_defs += f"{self.f32_to_int16(weight.view(-1)[j].item())}, "
                 weight_defs = weight_defs[:-2]
                 weight_defs += "};\n"
 
-                bias_defs += f"    static const int8_t b{i+1}[NN_H{i+1}] = {{"
+                bias_defs += f"    static const int16_t b{i+1}[NN_H{i+1}] = {{"
                 for j in range(bias.numel()):
-                    bias_defs += f"{self.f32_to_int8(bias.view(-1)[j].item())}, "
+                    bias_defs += f"{self.f32_to_int16(bias.view(-1)[j].item())}, "
                 bias_defs = bias_defs[:-2]
                 bias_defs += "};\n"
 
                 if i != 0:
-                    values_defs += f"    static int8_t v{i}[NN_H{i}] = {{0}};\n"
+                    values_defs += f"    static int16_t v{i}[NN_H{i}] = {{0}};\n"
 
                 i += 1
         defines += f"#define NN_H{i} {model.layers[len(model.layers)-1].out_features}\n"
         
         out += f"{defines}\n"
         out += f"{LAYER_FUNCTION}\n"
-        out += f"void neural_network(int8_t* input, int8_t* output) {{\n"
+        out += f"void neural_network(int16_t* input, int16_t* output) {{\n"
         out += f"{weight_defs}\n{bias_defs}\n{values_defs}\n"
 
         for k in range(i):
