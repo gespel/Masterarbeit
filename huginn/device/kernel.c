@@ -8,6 +8,7 @@
 #include "../model-compiler/model.h"
 
 #define NN_FEATURES 10
+#define NN_THRESHOLD (1 << (NN_SHIFT - 1))
 
 static inline uint16_t read_u16(const uint8_t *p) {
 	uint16_t v;
@@ -109,37 +110,33 @@ static void flow_free(struct pkt_ctx *c, struct flow *f) {
 	__atomic_store_n(&f->state, FLOW_STATE_NEW, __ATOMIC_RELEASE);
 }
 
-/* Saturates v to the int8 input range 0..127 (Q0.7, like the weights). */
-static inline int8_t q_lin(uint32_t v) {
-	return v > 127 ? 127 : (int8_t)v;
+static inline int16_t f_lin(uint32_t v, unsigned shift) {
+	return v > ((uint32_t)INT16_MAX >> shift) ? INT16_MAX : (int16_t)(v << shift);
 }
 
-/* Compresses a 32-bit value logarithmically to 0..127: 4 steps per power of two
- * (bit length plus the two bits after the leading one); 0 and 1 both map to 0. */
-static inline int8_t q_log2(uint32_t v) {
-	if (v == 0) {
+static inline int16_t f_log2(uint32_t v) {
+	if (v <= 1) {
 		return 0;
 	}
 	unsigned lz = __builtin_clz(v);
-	uint32_t frac = (lz == 31) ? 0 : (v << (lz + 1)) >> 30;
-	return (int8_t)((31 - lz) * 4 + frac);
+	uint32_t frac = (v << (lz + 1)) >> 22;
+	return (int16_t)(((31 - lz) << 10) | frac);
 }
 
-/* Feature order as in training. The scaling is a placeholder until it matches the training preprocessing. */
-static void extract_features(const struct flow *f, int8_t in[NN_FEATURES]) {
+static void extract_features(const struct flow *f, int16_t in[NN_FEATURES]) {
 	uint32_t n = f->total_pkts;
 	uint32_t iat_mean = n > 1 ? f->iat_sum / (n - 1) : 0;
 
-	in[0] = q_lin(n);                     /* Number of Packets */
-	in[1] = q_lin(f->t.src_port >> 9);    /* Source Port */
-	in[2] = q_lin(f->t.dst_port >> 9);    /* Destination Port */
-	in[3] = q_lin(f->total_bytes / n >> 4); /* Average Packet Size */
-	in[4] = q_lin(f->pkt_min >> 4);       /* Minimum Packet Size */
-	in[5] = q_lin(f->pkt_max >> 4);       /* Maximum Packet Size */
-	in[6] = q_log2(f->total_bytes);       /* Total Bytes */
-	in[7] = q_log2(f->iat_min);           /* IAT Min (µs) */
-	in[8] = q_log2(f->iat_max);           /* IAT Max (µs) */
-	in[9] = q_log2(iat_mean);             /* IAT Mean (µs) */
+	in[0] = f_lin(n, 8);                    /* Number of Packets */
+	in[1] = f_lin(f->t.src_port >> 1, 0);   /* Source Port */
+	in[2] = f_lin(f->t.dst_port >> 1, 0);   /* Destination Port */
+	in[3] = f_lin(f->total_bytes / n, 4);   /* Average Packet Size */
+	in[4] = f_lin(f->pkt_min, 4);           /* Minimum Packet Size */
+	in[5] = f_lin(f->pkt_max, 4);           /* Maximum Packet Size */
+	in[6] = f_log2(f->total_bytes);         /* Total Bytes */
+	in[7] = f_log2(f->iat_min);             /* IAT Min (µs) */
+	in[8] = f_log2(f->iat_max);             /* IAT Max (µs) */
+	in[9] = f_log2(iat_mean);               /* IAT Mean (µs) */
 }
 
 flexio_dev_event_handler_t pkt_handler;
@@ -188,11 +185,11 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			f->fin_count += t.fin;
 
 			if (f->total_pkts == NUM_PCKGS_BEFORE_CLASSIFICATION) {
-				int8_t in[NN_FEATURES], out[NN_H4];
+				int16_t in[NN_FEATURES], out[NN_H4];
 
 				extract_features(f, in);
 				neural_network(in, out);
-				int malicious = out[0] > 64;
+				int malicious = out[0] > NN_THRESHOLD;
 				c->inferred++;
 				c->malicious += malicious;
 				if (malicious) {

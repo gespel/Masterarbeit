@@ -8,13 +8,9 @@ import time
 from flowextractor.dataset import gobuster
 from flowextractor.dataset import slowloris
 
-# Must match NUM_PCKGS_BEFORE_CLASSIFICATION in huginn/common.h: the DPA classifies a flow after this many packets and
-# then frees its entry, so the next packet of the same connection starts a fresh window.
 PACKETS_PER_WINDOW = 8
 
 def canonical_five_tuple(packet):
-    """Bidirectional flow key like parse_five_tuple() in huginn/device/kernel.c: both directions of a connection map to
-    the same tuple, ordered so that the numerically lower IP (on equal IPs the lower port) comes first."""
     if not packet.haslayer(IP) or (not packet.haslayer(TCP) and not packet.haslayer(UDP)):
         return None
 
@@ -105,7 +101,6 @@ class FlowTableManager:
     def write_flow_vectors_to_csv(self, file_path):
         flow_vectors = []
         delete = []
-        # flows are written once idle so that labels which depend on later evidence (sshd log) are final
         for flow_hash, flow in self.flow_table.items():
             if time.time() - flow.last_seen_time > 60:
                 for feature_vector in flow.windows:
@@ -142,9 +137,6 @@ class FlowTableManager:
         self.flow_table = {}
 
 class Flow:
-    """Statistics are kept per window of PACKETS_PER_WINDOW packets, like the flow entries on the DPA: every complete
-    window becomes one feature vector, an incomplete last window is never classified on the device and is dropped."""
-
     def __init__(self, flow_hash=None, src_ip=None, dst_ip=None, src_port=None, dst_port=None):
         self.src_ip = src_ip
         self.dst_ip = dst_ip
@@ -168,7 +160,6 @@ class Flow:
         self.iat_min = float('inf')
         self.iat_max = 0
         self.iat_mean = 0
-        # no IAT across window borders: on the DPA the next window is a fresh flow entry
         self.last_packet_time = None
 
     def add_packet(self, packet):

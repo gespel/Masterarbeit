@@ -1,19 +1,22 @@
 import torch
+FRAC_BITS = 15
+Q_SCALE = 1 << FRAC_BITS
+Q_MIN, Q_MAX = -(1 << 15), (1 << 15) - 1
 
 LAYER_FUNCTION = """static void layer(const int16_t *in, const int16_t *w, const int16_t *b, int16_t *out, int rows, int cols, int relu) {
     for (int r = 0; r < rows; r++) {
-        int32_t acc = 0;
+        int64_t acc = 0;
         for (int c = 0; c < cols; c++)
             acc += (int32_t)w[r * cols + c] * (int32_t)in[c];
         acc >>= NN_SHIFT;
         acc += b[r];
         if (relu && acc < 0)
             acc = 0;
-        if (acc > 127)
-            acc = 127;
-        if (acc < -128)
-            acc = -128;
-        out[r] = (int8_t)acc;
+        if (acc > INT16_MAX)
+            acc = INT16_MAX;
+        if (acc < INT16_MIN)
+            acc = INT16_MIN;
+        out[r] = (int16_t)acc;
     }
 }
 """
@@ -41,20 +44,19 @@ class ModelCompiler:
         pass
 
     def f32_to_int8(self, value: float) -> int:
-        scale = 128.0  # Scale factor for int8 range
+        scale = 128.0
         return round(max(min(value * scale, 127), -128))
     
     def f32_to_int16(self, value: float) -> int:
-        scale = 32767
-        return round(max(min(value * scale, 32766), -32767))
+        return round(max(min(value * Q_SCALE, Q_MAX), Q_MIN))
 
     def f32_to_int32(self, value: float) -> int:
-        scale = 2147483647.0  # Scale factor for int32 range
+        scale = 2147483647.0
         return round(max(min(value * scale, 2147483647), -2147483648))
 
     def compile(self, model: torch.nn.Module) -> str:
         out = ""
-        defines = "#include <stdint.h>\n\n#define NN_SHIFT 7\n"
+        defines = f"#include <stdint.h>\n\n#define NN_SHIFT {FRAC_BITS}\n"
         weight_defs = ""
         bias_defs = ""
         values_defs = ""
@@ -84,14 +86,14 @@ class ModelCompiler:
                 bias_defs += "};\n"
 
                 if i != 0:
-                    values_defs += f"    static int16_t v{i}[NN_H{i}] = {{0}};\n"
+                    values_defs += f"    int16_t v{i}[NN_H{i}];\n"
 
                 i += 1
         defines += f"#define NN_H{i} {model.layers[len(model.layers)-1].out_features}\n"
         
         out += f"{defines}\n"
         out += f"{LAYER_FUNCTION}\n"
-        out += f"void neural_network(int16_t* input, int16_t* output) {{\n"
+        out += f"static void neural_network(const int16_t *input, int16_t *output) {{\n"
         out += f"{weight_defs}\n{bias_defs}\n{values_defs}\n"
 
         for k in range(i):
