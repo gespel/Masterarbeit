@@ -8,7 +8,6 @@ import time
 from flowextractor.dataset import gobuster
 from flowextractor.dataset import slowloris
 
-PACKETS_PER_WINDOW = 8
 
 def canonical_five_tuple(packet):
     if not packet.haslayer(IP) or (not packet.haslayer(TCP) and not packet.haslayer(UDP)):
@@ -70,7 +69,7 @@ class FlowTableManager:
         for flow_hash, flow in self.flow_table.items():
             if flow.total_packets > 1:
                 print(f"=============\nFlow Hash: {flow_hash:x}"
-                    f"\n\tNumber of Packets: {flow.total_packets} ({len(flow.windows)} complete windows of {PACKETS_PER_WINDOW}, statistics below: current window)"
+                    f"\n\tNumber of Packets: {flow.total_packets} ({len(flow.windows)} complete windows of {flow.packets_per_window}, statistics below: current window)"
                     f"\n\tSource IP: {flow.src_ip}"
                     f"\n\tDestination IP: {flow.dst_ip}"
                     f"\n\tSource Port: {flow.src_port}"
@@ -137,12 +136,13 @@ class FlowTableManager:
         self.flow_table = {}
 
 class Flow:
-    def __init__(self, flow_hash=None, src_ip=None, dst_ip=None, src_port=None, dst_port=None):
+    def __init__(self, flow_hash=None, src_ip=None, dst_ip=None, src_port=None, dst_port=None, packets_per_window=5):
         self.src_ip = src_ip
         self.dst_ip = dst_ip
         self.src_port = src_port
         self.dst_port = dst_port
         self.flow_hash = flow_hash
+        self.packets_per_window = packets_per_window
         self.total_packets = 0
         self.windows = []
         self.last_seen_time = time.time()
@@ -184,7 +184,7 @@ class Flow:
             self.iat_mean = ((self.iat_mean * (number_of_iats - 1)) + iat) / number_of_iats
         self.last_packet_time = packet.time
 
-        if self.number_of_packets == PACKETS_PER_WINDOW:
+        if self.number_of_packets == self.packets_per_window:
             self.windows.append(self.build_feature_vector())
             self._reset_window()
 
