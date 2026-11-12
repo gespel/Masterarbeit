@@ -1,0 +1,77 @@
+[   0.215] connected to 127.0.0.1:1981
+[   0.217] qSupported -> PacketSize=8000;qXfer:features:read+;vContSupported+;multiprocess+
+[   0.299] ?           -> S05
+[   0.300] qfThreadInfo-> mp01.30011981
+[   0.300] vCont?      -> vCont;c;C;s;S;
+[   0.300] pc          -> 0x0800000000000000
+[   0.302] Z0,40001b7c,2 -> OK
+[   0.302] continue
+[   1.476] hit #1: T05thread:p01.8001; pc=0x0000000040001b7c
+[   1.481]   step -> 'T05thread:p01.8001;'
+[   1.576] hit #2: T05thread:p01.8001; pc=0x0000000040001b7c
+[   1.580]   step -> 'T05thread:p01.8001;'
+[   1.677] hit #3: T05thread:p01.8001; pc=0x0000000040001b7c
+[   1.682]   step -> 'T05thread:p01.8001;'
+[   2.376] hit #10: T05thread:p01.8001; pc=0x0000000040001b7c
+[   2.381]   step -> 'T05thread:p01.8001;'
+[   3.377] hit #20: T05thread:p01.8001; pc=0x0000000040001b7c
+[   3.382]   step -> 'T05thread:p01.8001;'
+[   4.374] hit #30: T05thread:p01.8001; pc=0x0000000040001b7c
+[   4.379]   step -> 'T05thread:p01.8001;'
+[   5.376] hit #40: T05thread:p01.8001; pc=0x0000000040001b7c
+[   5.380]   step -> 'T05thread:p01.8001;'
+[   6.375] hit #50: T05thread:p01.8001; pc=0x0000000040001b7c
+[   6.380]   step -> 'T05thread:p01.8001;'
+[   7.375] hit #60: T05thread:p01.8001; pc=0x0000000040001b7c
+[   7.379]   step -> 'T05thread:p01.8001;'
+[   8.374] hit #70: T05thread:p01.8001; pc=0x0000000040001b7c
+[   8.379]   step -> 'T05thread:p01.8001;'
+[   9.373] hit #80: T05thread:p01.8001; pc=0x0000000040001b7c
+[   9.378]   step -> 'T05thread:p01.8001;'
+[  10.373] hit #90: T05thread:p01.8001; pc=0x0000000040001b7c
+[  10.378]   step -> 'T05thread:p01.8001;'
+[  11.373] hit #100: T05thread:p01.8001; pc=0x0000000040001b7c
+[  11.378]   step -> 'T05thread:p01.8001;'
+[  12.372] hit #110: T05thread:p01.8001; pc=0x0000000040001b7c
+[  12.376]   step -> 'T05thread:p01.8001;'
+[  13.372] hit #120: T05thread:p01.8001; pc=0x0000000040001b7c
+[  13.376]   step -> 'T05thread:p01.8001;'
+[  14.372] hit #130: T05thread:p01.8001; pc=0x0000000040001b7c
+[  14.377]   step -> 'T05thread:p01.8001;'
+[  15.370] hit #140: T05thread:p01.8001; pc=0x0000000040001b7c
+[  15.375]   step -> 'T05thread:p01.8001;'
+[  16.371] hit #150: T05thread:p01.8001; pc=0x0000000040001b7c
+[  16.375]   step -> 'T05thread:p01.8001;'
+[  17.370] hit #160: T05thread:p01.8001; pc=0x0000000040001b7c
+[  17.375]   step -> 'T05thread:p01.8001;'
+[  18.370] hit #170: T05thread:p01.8001; pc=0x0000000040001b7c
+[  18.374]   step -> 'T05thread:p01.8001;'
+[  19.370] hit #180: T05thread:p01.8001; pc=0x0000000040001b7c
+[  19.375]   step -> 'T05thread:p01.8001;'
+[  20.368] hit #190: T05thread:p01.8001; pc=0x0000000040001b7c
+[  20.373]   step -> 'T05thread:p01.8001;'
+[  21.369] hit #200: T05thread:p01.8001; pc=0x0000000040001b7c
+[  21.373]   step -> 'T05thread:p01.8001;'
+[  22.368] hit #210: T05thread:p01.8001; pc=0x0000000040001b7c
+[  22.372]   step -> 'T05thread:p01.8001;'
+[  23.368] hit #220: T05thread:p01.8001; pc=0x0000000040001b7c
+[  23.373]   step -> 'T05thread:p01.8001;'
+[  24.368] hit #230: T05thread:p01.8001; pc=0x0000000040001b7c
+[  24.372]   step -> 'T05thread:p01.8001;'
+[  25.366] hit #240: T05thread:p01.8001; pc=0x0000000040001b7c
+[  25.371]   step -> 'T05thread:p01.8001;'
+[  26.367] hit #250: T05thread:p01.8001; pc=0x0000000040001b7c
+[  26.372]   step -> 'T05thread:p01.8001;'
+[  27.366] hit #260: T05thread:p01.8001; pc=0x0000000040001b7c
+[  27.370]   step -> 'T05thread:p01.8001;'
+[  28.366] hit #270: T05thread:p01.8001; pc=0x0000000040001b7c
+[  28.371]   step -> 'T05thread:p01.8001;'
+[  29.365] hit #280: T05thread:p01.8001; pc=0x0000000040001b7c
+[  29.369]   step -> 'T05thread:p01.8001;'
+[  30.365] hit #290: T05thread:p01.8001; pc=0x0000000040001b7c
+[  30.370]   step -> 'T05thread:p01.8001;'
+[  31.365] hit #300: T05thread:p01.8001; pc=0x0000000040001b7c
+[  31.370]   step -> 'T05thread:p01.8001;'
+[  31.472] target exited: W00
+[  31.472] breakpoint hits: 300
+[  31.472] gdbserver closed the connection

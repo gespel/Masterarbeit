@@ -1,0 +1,47 @@
+[   0.114] connected to 127.0.0.1:1981
+[   0.117] qSupported -> PacketSize=8000;qXfer:features:read+;vContSupported+;multiprocess+
+[   0.199] ?           -> S05
+[   0.200] qfThreadInfo-> mp01.30011981
+[   0.200] vCont?      -> vCont;c;C;s;S;
+[   0.201] pc          -> 0x0800000000000000
+[   0.201] continue
+[   3.204] ^C sent
+[   3.208] stop        -> 'T02thread:p01.8001;'
+[   3.210] pc          -> 0x0000000040001b22
+[   3.410] continue
+[   6.413] ^C sent
+[   6.418] stop        -> 'T02thread:p01.8001;'
+[   6.419] pc          -> 0x0000000040001b1a
+[   6.619] continue
+[   9.622] ^C sent
+[   9.627] stop        -> 'T02thread:p01.8001;'
+[   9.628] pc          -> 0x0000000040001b22
+[   9.828] continue
+[  12.832] ^C sent
+[  12.836] stop        -> 'T02thread:p01.8001;'
+[  12.838] pc          -> 0x0000000040001b22
+[  13.038] continue
+[  16.038] ^C sent
+[  16.044] stop        -> 'T02thread:p01.8001;'
+[  16.045] pc          -> 0x0000000040001b22
+[  16.245] continue
+[  19.246] ^C sent
+[  19.251] stop        -> 'T02thread:p01.8001;'
+[  19.252] pc          -> 0x0000000040001b22
+[  19.452] continue
+[  22.454] ^C sent
+[  22.458] stop        -> 'T02thread:p01.8001;'
+[  22.460] pc          -> 0x0000000040001b1a
+[  22.660] continue
+[  25.660] ^C sent
+[  25.665] stop        -> 'T02thread:p01.8001;'
+[  25.667] pc          -> 0x0000000040001b1a
+[  25.867] continue
+[  28.870] ^C sent
+[  28.875] stop        -> 'T02thread:p01.8001;'
+[  28.876] pc          -> 0x0000000040001b1e
+[  29.076] continue
+[  31.354] stop        -> 'W00'
+[  31.354] target exited
+[  31.354] detach
+[  32.356] detach: gdbserver closed the connection

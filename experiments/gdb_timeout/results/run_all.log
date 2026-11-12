@@ -1,0 +1,34 @@
+=== nogdb: ./gdb_timeout 5 30
+5.000,0,0,5006.7,5000.0,5000.0,8999545452,50,1
+30.000,-2,0,6043.7,-1.0,6000.0,8999545452,60,0
+=== gdb_attach_30: attach --hold 60 -- 30
+# attach: dpa-gdbserver mlx5_0 -T 0x5556eda5368d2981 -s 1981, then send a line on stdin
+requested_s,status,err_status,wall_ms,ret_elapsed_ms,dev_elapsed_ms,dev_cycles,dev_ticks,dev_done
+30.000,-2,0,6041.4,-1.0,6000.0,0,60,0
+=== gdb_bp_30: bp --hold 60 --addr AUTO --halt 0 -- 30
+# TOKEN 0x1804fa3b7350cc54
+# attach: dpa-gdbserver mlx5_0 -T 0x1804fa3b7350cc54 -s 1981, then send a line on stdin
+requested_s,status,err_status,wall_ms,ret_elapsed_ms,dev_elapsed_ms,dev_cycles,dev_ticks,dev_done
+30.000,0,0,30007.0,30000.0,30000.0,54014055502,300,1
+=== gdb_irq3_30: interrupt --period 3 --halt 0.2 --hold 45 -- 30
+# attach: dpa-gdbserver mlx5_0 -T 0x5711000c5a655bef -s 1981, then send a line on stdin
+requested_s,status,err_status,wall_ms,ret_elapsed_ms,dev_elapsed_ms,dev_cycles,dev_ticks,dev_done
+30.000,0,0,29998.6,30000.0,30000.0,53997280854,300,1
+=== gdb_irq20_30: interrupt --period 20 --halt 0.2 --hold 45 -- 30
+# attach: dpa-gdbserver mlx5_0 -T 0x3d1f641c5796bcc0 -s 1981, then send a line on stdin
+requested_s,status,err_status,wall_ms,ret_elapsed_ms,dev_elapsed_ms,dev_cycles,dev_ticks,dev_done
+30.000,-2,0,6040.9,-1.0,6000.0,0,60,0
+=== fake_30_95: ./gdb_timeout -f 30 95
+30.000,0,0,30002.8,30000.0,30000.0,53997279901,300,1
+95.000,0,0,94966.9,95000.0,95000.0,170991388952,950,1
+=== fake_130: ./gdb_timeout -f 130
+130.000,0,0,129958.5,130000.0,130000.0,233988216399,1300,1
+=== gdb_bp_130: bp --hold 200 --addr AUTO --halt 0 -- 130
+# TOKEN 0xa2955b7ac593037a
+# attach: dpa-gdbserver mlx5_0 -T 0xa2955b7ac593037a -s 1981, then send a line on stdin
+requested_s,status,err_status,wall_ms,ret_elapsed_ms,dev_elapsed_ms,dev_cycles,dev_ticks,dev_done
+130.000,0,0,129965.3,130000.0,130000.0,234005249295,1300,1
+
+real	8m2.861s
+user	0m44.467s
+sys	2m51.292s

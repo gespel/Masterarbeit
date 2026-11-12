@@ -1,0 +1,11 @@
+[   0.215] connected to 127.0.0.1:1981
+[   0.217] qSupported -> PacketSize=8000;qXfer:features:read+;vContSupported+;multiprocess+
+[   0.299] ?           -> S05
+[   0.301] qfThreadInfo-> mp01.30011981
+[   0.301] vCont?      -> vCont;c;C;s;S;
+[   0.301] pc          -> 0x0800000000000000
+[   0.301] continue
+[   7.503] stop        -> 'W00'
+[   7.503] target exited
+[   7.503] detach
+[   8.504] detach: gdbserver closed the connection

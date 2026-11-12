@@ -1,0 +1,6 @@
+/8000/This is on the DPA.
+device             : mlx5_0
+cont_run_time_max  : 100 s
+udbg_token         : 0xd8f93f2b066fac4f
+result daddr       : 0xc00081c0
+fake UDBG semaphore: key 0x66fac4f semid 11 value 1

@@ -1,0 +1,5 @@
+Registered on device mlx5_0
+Listening for GDB connection on port 1981
+GDB connection from IP address 127.0.0.1:36588 accepted
+GDBS:751 Expression "gdbs->is_dgdbs_runing" failed
+Killing process

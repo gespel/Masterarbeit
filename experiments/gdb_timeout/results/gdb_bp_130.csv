@@ -1,0 +1,4 @@
+# TOKEN 0xa2955b7ac593037a
+# attach: dpa-gdbserver mlx5_0 -T 0xa2955b7ac593037a -s 1981, then send a line on stdin
+requested_s,status,err_status,wall_ms,ret_elapsed_ms,dev_elapsed_ms,dev_cycles,dev_ticks,dev_done
+130.000,0,0,129965.3,130000.0,130000.0,234005249295,1300,1
