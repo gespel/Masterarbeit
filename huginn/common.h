@@ -16,7 +16,7 @@
 #define IPPROTO_TCP    6
 #define IPPROTO_UDP    17
 #define HASH_SEED      0x9e3779b9u
-#define LOG_FLOW_ENTRIES 23
+#define LOG_FLOW_ENTRIES 15 /* per EU, every EU has its own table */
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
 
 #define FLOW_BUCKET_SIZE 8

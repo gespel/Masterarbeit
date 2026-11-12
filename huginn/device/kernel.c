@@ -51,23 +51,13 @@ static void parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple
 	}
 }
 
-static int flow_lock(struct flow *f) {
-	if (f->state != FLOW_STATE_NEW) {
-		return 0;
-	}
-	if (__atomic_exchange_n(&f->state, FLOW_STATE_KNOWN, __ATOMIC_ACQUIRE) == FLOW_STATE_NEW) {
-		return 1;
-	}
-	return 0;
-}
-
 static int tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
 	return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip && a->src_port == b->src_port && a->dst_port == b->dst_port && a->proto == b->proto;
 }
 
 static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, uint32_t hash) {
 	int index = hash & FLOW_MASK & ~(FLOW_BUCKET_SIZE - 1);
-	struct flow *bucket = &((struct flow *)c->flows)[index];
+	struct flow *bucket = (struct flow *)c->flows + index;
 	struct flow *free_slot = NULL;
 
 	for (unsigned int i = 0; i < FLOW_BUCKET_SIZE; i++) {
@@ -81,8 +71,9 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 			return f; // return a flow that is known
 		}
 	}
-	if (free_slot != NULL && flow_lock(free_slot) == 1) {
+	if (free_slot != NULL) {
 		struct flow *f = free_slot;
+		f->state = FLOW_STATE_KNOWN;
 		f->t = *t;
 		f->hash = hash;
 		f->total_bytes = 0;
@@ -105,9 +96,8 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 }
 
 static void flow_free(struct pkt_ctx *c, struct flow *f) {
-	f->hash ^= 1; // flip a bit to make the flow's hash different from its tuple, so other EUs won't match it anymore
 	c->used--;
-	__atomic_store_n(&f->state, FLOW_STATE_NEW, __ATOMIC_RELEASE);
+	f->state = FLOW_STATE_NEW;
 }
 
 static inline int16_t f_lin(uint32_t v, unsigned shift) {

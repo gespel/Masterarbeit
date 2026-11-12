@@ -1,0 +1,5 @@
+device            : mlx5_0
+cont_run_time_max : 100 s
+requested         : 130.0 s
+handler finished: 130.0 s, 233988215952 cycles
+final err_status  : 0

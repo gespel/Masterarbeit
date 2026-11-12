@@ -131,7 +131,6 @@ static flexio_uintptr_t create_handler(struct ibv_context *ibv, struct ibv_pd *p
 	return ctx_daddr;
 }
 
-/* Runs a DevX create command. All three commands used here return the new object's number in the same place. */
 static uint32_t devx_create(struct ibv_context *ibv, const void *in, size_t inlen, struct mlx5dv_devx_obj **obj) {
 	uint32_t out[4] = {0};
 
@@ -140,7 +139,6 @@ static uint32_t devx_create(struct ibv_context *ibv, const void *in, size_t inle
 	return be32toh(out[2]) & 0xffffff;
 }
 
-/* Creates a TIR that spreads IPv4/TCP over the RQs with a symmetric Toeplitz hash. */
 static struct mlx5dv_devx_obj *create_rss_tir(struct ibv_context *ibv, const uint32_t *rqn) {
 	static const uint8_t key[40] = {
 		0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2, 0x41, 0x67, 0x25, 0x3d, 0x43, 0xa3, 0x8f, 0xb0,
@@ -173,20 +171,18 @@ static struct mlx5dv_devx_obj *create_rss_tir(struct ibv_context *ibv, const uin
 	return obj;
 }
 
-/* Starts pkt_handler on EUs 0..NUM_EUS-1 (cores 0..NUM_CORES-1), all sharing one flow table, and writes their contexts to ctx.
- * TCP is spread over all EUs by symmetric RSS, all other packets go to EU 0. Both directions of a flow thus share one EU:
- * flow entries keep a single writer and the per-EU timer stays comparable for the IAT. */
 static void steer_flows(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uintptr_t *ctx) {
 	struct flexio_rq *rq[NUM_EUS];
 	uint32_t rqn[NUM_EUS];
 
-	size_t flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct flow);
+	size_t eu_flows_bsize = (1u << LOG_FLOW_ENTRIES) * sizeof(struct flow);
+	size_t flows_bsize = NUM_EUS * eu_flows_bsize;
 	flexio_uintptr_t flows;
 	DOCA_TRY(flexio_buf_dev_alloc(proc, flows_bsize, &flows));
 	DOCA_TRY(flexio_buf_dev_memset(proc, 0, flows_bsize, flows));
 
 	for (unsigned int eu = 0; eu < NUM_EUS; eu++) {
-		ctx[eu] = create_handler(ibv, pd, eu, flows, &rq[eu]);
+		ctx[eu] = create_handler(ibv, pd, eu, flows + eu * eu_flows_bsize, &rq[eu]);
 		rqn[eu] = flexio_rq_get_wq_num(rq[eu]);
 		DOCA_TRY(rqn[eu] == UINT32_MAX);
 	}
@@ -246,7 +242,6 @@ int main() {
 	flexio_uintptr_t ctx[NUM_EUS];
 	steer_flows(ibv, pd, ctx);
 
-	/* collect_stats sums all EUs on the DPA into a DPA buffer, which flexio_memcpy then copies to the host */
 	flexio_uintptr_t ctxs = to_dpa(ctx, sizeof(ctx));
 	flexio_uintptr_t st_daddr;
 	DOCA_TRY(flexio_buf_dev_alloc(proc, sizeof(struct stats), &st_daddr));
@@ -267,13 +262,10 @@ int main() {
 		uint64_t ret;
 		DOCA_TRY(flexio_process_call(proc, &collect_stats, &ret, ctxs, (uint64_t)NUM_EUS, st_daddr));
 		DOCA_TRY(flexio_memcpy(proc, &st_src, &st_dst, sizeof(st)));
-		/* the RPC takes time too, so stamp every interval with the real time */
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		double t = (now.tv_sec - t0.tv_sec) + (now.tv_nsec - t0.tv_nsec) * 1e-9;
 		uint64_t count = st.count, cycles = st.cycles, used = st.used, coll = st.collisions, inferred = st.inferred, mal = st.malicious;
-		/* share of this interval's packets that found their bucket full and belong to no flow */
 		double coll_pct = count > last ? 100.0 * (coll - last_coll) / (count - last) : 0.0;
-		/* share of this interval's classified flows that the model flagged as malicious */
 		double mal_pct = inferred > last_inferred ? 100.0 * (mal - last_mal) / (inferred - last_inferred) : 0.0;
 		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%\n",
 			((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
@@ -287,8 +279,8 @@ int main() {
 			((count - last) / (t - last_t)) / 1000000, 
 			count ? (double)cycles / count : 0.0,
 			used, 
-			1u << LOG_FLOW_ENTRIES, 
-			100.0 * used / (1u << LOG_FLOW_ENTRIES),
+			NUM_EUS << LOG_FLOW_ENTRIES,
+			100.0 * used / (NUM_EUS << LOG_FLOW_ENTRIES),
 			coll_pct, 
 			(inferred - last_inferred) / (t - last_t) / 1000000
 		);

@@ -1,5 +1,3 @@
-/* Minimal: run one RPC longer than libflexio's 6 s poll timeout.
- * ./long_rpc <seconds> */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,7 +30,7 @@ int main(int argc, char **argv)
 	if (!ibv || flexio_app_get(&sel, &app) || flexio_process_create(ibv, app, NULL, &proc))
 		return 1;
 
-	// Der Trick: pretend dpa-gdbserver has the target halted (value 1), so libflexio re-arms its RPC poll timeout forever.
+	// wir tun so als ob der dpa-gdbserver halted sodass libflexio den RPC poll nie abbricht. über die semaphore
 	int sem = semget((key_t)(uint32_t)flexio_process_udbg_token_get(proc), 1, IPC_CREAT | 0666);
 	semctl(sem, 0, SETVAL, 1);
 
