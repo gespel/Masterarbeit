@@ -125,6 +125,10 @@ class FlowTableManager:
             "IAT Min",
             "IAT Max",
             "IAT Mean",
+            "RST",
+            "PSH",
+            "FIN",
+            "URG",
             "Label",
             "Attack Type"
         ])
@@ -144,6 +148,10 @@ class Flow:
         self.flow_hash = flow_hash
         self.packets_per_window = packets_per_window
         self.total_packets = 0
+        self.rst = 0
+        self.psh = 0
+        self.fin = 0
+        self.urg = 0
         self.windows = []
         self.last_seen_time = time.time()
         self.first_packet_time = None
@@ -160,6 +168,10 @@ class Flow:
         self.iat_min = float('inf')
         self.iat_max = 0
         self.iat_mean = 0
+        self.rst = 0
+        self.psh = 0
+        self.fin = 0
+        self.urg = 0
         self.last_packet_time = None
 
     def add_packet(self, packet):
@@ -169,6 +181,11 @@ class Flow:
         if self.first_packet_time is None:
             self.first_packet_time = packet.time
         self.last_seen_time = packet.time
+
+        self.rst += int(packet[TCP].flags & 0x04 != 0) if packet.haslayer(TCP) else 0
+        self.psh += int(packet[TCP].flags & 0x08 != 0) if packet.haslayer(TCP) else 0
+        self.fin += int(packet[TCP].flags & 0x01 != 0) if packet.haslayer(TCP) else 0
+        self.urg += int(packet[TCP].flags & 0x20 != 0) if packet.haslayer(TCP) else 0
 
         packet_size = len(packet)
         self.total_bytes += packet_size
@@ -201,6 +218,10 @@ class Flow:
             self.total_bytes,
             self.iat_min,
             self.iat_max,
-            self.iat_mean
+            self.iat_mean,
+            self.rst,
+            self.psh,
+            self.fin,
+            self.urg
         ]
         return out_vector
