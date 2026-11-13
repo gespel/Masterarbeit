@@ -2,7 +2,7 @@
 DOCA := /opt/mellanox/doca
 MCPU := nv-dpa-bf3,nv-dpa-cx7,nv-dpa-cx8
 
-huginn: src/host.c src/common.h device_prog.a
+huginn: src/host.c src/common.h src/logo.h device_prog.a
 	gcc -DFLEXIO_ALLOW_EXPERIMENTAL_API -o $@ src/host.c device_prog.a $(shell pkg-config --cflags --libs libflexio libibverbs libmlx5)
 
 device_prog.a: src/device/kernel.c src/common.h model-compiler/model.h

@@ -10,6 +10,7 @@
 #define FLEXIO_VER_USED FLEXIO_VER(26, 4, 0)
 #include <libflexio/flexio.h>
 #include "common.h"
+#include "logo.h"
 
 #define DOCA_TRY(x) do { if (x) { fprintf(stderr, "%s failed\n", #x); exit(1); } } while (0)
 
@@ -214,6 +215,7 @@ static void steer_flows(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uintp
 }
 
 int main() {
+	print_logo();
 	struct ibv_context *ibv = open_ibv("mlx5_2");
 	struct ibv_pd *pd = ibv_alloc_pd(ibv);
 	DOCA_TRY(!pd);
@@ -255,7 +257,7 @@ int main() {
 	double last_t = 0;
 	int duration = 0;
 	while (1) {
-		usleep(500000);
+		
 		//system("clear");
 		flexio_msg_stream_flush(stream);
 
@@ -293,5 +295,6 @@ int main() {
 		//if (duration >= 30) {
 		//	break;
 		//}
+		usleep(2000000);
 	}
 }
