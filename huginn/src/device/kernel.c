@@ -5,7 +5,7 @@
 #include <dpaintrin.h>
 #include <stddef.h>
 #include "../common.h"
-#include "../model-compiler/model.h"
+#include "../../model-compiler/model.h"
 
 #define NN_FEATURES 10
 #define NN_THRESHOLD (1 << (NN_SHIFT - 1))
