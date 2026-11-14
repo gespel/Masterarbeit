@@ -16,8 +16,9 @@
 #define IPPROTO_TCP    6
 #define IPPROTO_UDP    17
 #define HASH_SEED      0x9e3779b9u
-#define LOG_FLOW_ENTRIES 15 /* per EU, every EU has its own table */
+#define LOG_FLOW_ENTRIES 15 // per EU, every EU has its own table
 #define FLOW_MASK      ((1u << LOG_FLOW_ENTRIES) - 1)
+#define NUM_FLOW_GENERATIONS 4 // number of generations to keep in the flow table
 
 #define FLOW_BUCKET_SIZE 8
 #define NUM_PCKGS_BEFORE_CLASSIFICATION 8
@@ -32,6 +33,7 @@ struct pkt_ctx {
 	uint64_t cq_ring, cq_dbr, rq_dbr;
 	uint64_t rx_bufs;
 	uint64_t flows;
+	uint64_t flow_generations[NUM_FLOW_GENERATIONS];
 	uint32_t cq_num;
 	uint32_t cq_ci;
 	uint64_t count;
@@ -40,6 +42,7 @@ struct pkt_ctx {
 	uint64_t used;
 	uint64_t inferred;
 	uint64_t malicious;
+	uint64_t sweep_index;
 };
 
 struct stats {

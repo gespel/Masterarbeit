@@ -1,5 +1,6 @@
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,9 +28,8 @@
 #define EUS_PER_CORE 16
 #define NUM_CORES    11
 #define NUM_EUS      (NUM_CORES * EUS_PER_CORE)
-/* Offset in the outer-header part of the match buffer (PRM fte_match_set_lyr_2_4) */
 #define MATCH_IP_PROTOCOL 0x10
-/* DevX commands for RSS, the offsets are bytes into the command input (PRM create_rqt_in, create_tir_in) */
+// DevX commands for RSS, the offsets are bytes into the command input (PRM create_rqt_in, create_tir_in)
 #define CMD_ALLOC_TD      0x816
 #define CMD_CREATE_TIR    0x900
 #define CMD_CREATE_RQT    0x916
@@ -74,7 +74,7 @@ static struct ibv_context *open_ibv(const char *name) {
 	return ctx;
 }
 
-static flexio_uintptr_t create_handler(struct ibv_context *ibv, struct ibv_pd *pd, uint32_t eu, flexio_uintptr_t flows, struct flexio_rq **rq) {
+static uint64_t create_handler(struct ibv_context *ibv, struct ibv_pd *pd, uint32_t eu, flexio_uintptr_t flows, struct flexio_rq **rq) {
 	struct flexio_event_handler *eh;
 	struct flexio_event_handler_attr eh_attr = {
 		.host_stub_func = pkt_handler,
@@ -127,7 +127,7 @@ static flexio_uintptr_t create_handler(struct ibv_context *ibv, struct ibv_pd *p
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
 	DOCA_TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
-	flexio_uintptr_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
+	uint64_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
 	DOCA_TRY(flexio_event_handler_run(eh, ctx_daddr));
 	return ctx_daddr;
 }

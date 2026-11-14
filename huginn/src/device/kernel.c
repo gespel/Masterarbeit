@@ -51,6 +51,20 @@ static void parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple
 	}
 }
 
+static inline int flow_expired(const struct flow *f, uint32_t now) {
+	if (f->state != FLOW_STATE_NEW && now - f->last_seen > 10000000) { // 10 seconds
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+static void flow_free(struct pkt_ctx *c, struct flow *f) {
+	c->used--;
+	f->state = FLOW_STATE_NEW;
+}
+
 static int tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
 	return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip && a->src_port == b->src_port && a->dst_port == b->dst_port && a->proto == b->proto;
 }
@@ -63,9 +77,13 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 	for (unsigned int i = 0; i < FLOW_BUCKET_SIZE; i++) {
 		struct flow *f = &bucket[i];
 
+		if (flow_expired(f, (uint32_t)__dpa_thread_time())) {
+			flow_free(c, f);
+		}
+
 		if (f->state == FLOW_STATE_NEW) {
 			if (free_slot == NULL) {
-				free_slot = f;
+				free_slot = f; // wir merken uns nur den ersten freien Slot, suchen aber weiter, um zu prüfen, ob der Flow später im Bucket schon existiert
 			}
 		} else if (f->hash == hash && tuple_eq(&f->t, t)) {
 			return f; // return a flow that is known
@@ -95,11 +113,6 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 	return NULL;
 }
 
-static void flow_free(struct pkt_ctx *c, struct flow *f) {
-	c->used--;
-	f->state = FLOW_STATE_NEW;
-}
-
 static inline int16_t f_lin(uint32_t v, unsigned shift) {
 	return v > ((uint32_t)INT16_MAX >> shift) ? INT16_MAX : (int16_t)(v << shift);
 }
@@ -111,6 +124,16 @@ static inline int16_t f_log2(uint32_t v) {
 	unsigned lz = __builtin_clz(v);
 	uint32_t frac = (v << (lz + 1)) >> 22;
 	return (int16_t)(((31 - lz) << 10) | frac);
+}
+
+static inline void bucket_cleaner(struct pkt_ctx *c, struct flow *bucket, unsigned int size, uint32_t now) {
+	for (unsigned int i = 0; i < size; i++) {
+		struct flow *f = &bucket[i];
+
+		if (f->state != FLOW_STATE_NEW && now - f->last_seen > 10000000) { // 10 seconds
+			flow_free(c, f);
+		}
+	}
 }
 
 static void extract_features(const struct flow *f, int16_t in[NN_FEATURES]) {
@@ -200,6 +223,9 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 		start = now2;
 	}
 
+	bucket_cleaner(c, (struct flow *)c->flows + c->sweep_index, FLOW_BUCKET_SIZE, (uint32_t)__dpa_thread_time());
+	c->sweep_index = (c->sweep_index + FLOW_BUCKET_SIZE) & FLOW_MASK;
+
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 	flexio_dev_cq_arm(c->cq_ci, c->cq_num);
 	c->cycles += __dpa_thread_cycles() - start;
@@ -228,5 +254,24 @@ __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out
 	s->inferred = inferred;
 	s->malicious = malicious;
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
+	return 0;
+}
+
+__dpa_rpc__ uint64_t age_flows(uint64_t ctxs, uint64_t num_eus) {
+	const uint64_t *ctx = (const uint64_t *)ctxs;
+	uint32_t now = (uint32_t)__dpa_thread_time();
+
+	for (uint64_t eu = 0; eu < num_eus; eu++) {
+		struct pkt_ctx *c = (struct pkt_ctx *)ctx[eu];
+		struct flow *flows = (struct flow *)c->flows;
+
+		for (unsigned int i = 0; i < (1u << LOG_FLOW_ENTRIES); i++) {
+			struct flow *f = &flows[i];
+
+			if (f->state != FLOW_STATE_NEW && now - f->last_seen > 10000000) { // 10 seconds
+				flow_free(c, f);
+			}
+		}
+	}
 	return 0;
 }
