@@ -188,7 +188,7 @@ def print_metrics(name, y_true, y_pred, telegram_bot: TelegramBot = None):
 
 
 def main():
-    tb = TelegramBot()
+    #tb = TelegramBot()
 
     argparser = argparse.ArgumentParser(description="Train a neural network for attack detection.")
     argparser.add_argument("--feature_csv", type=str, default="flow_vectors.csv", help="Path to the CSV file containing flow features.")
@@ -206,7 +206,7 @@ def main():
         raw_data = pandas.read_csv(args.feature_csv)
         training_data = normalize_training_data(raw_data)
         print(training_data.info())
-        tb.send_message(793377854, f"Training data loaded. {len(training_data)} samples available. Starting training now...")
+        #tb.send_message(793377854, f"Training data loaded. {len(training_data)} samples available. Starting training now...")
 
         x = torch.tensor(training_data[FEATURE_COLUMNS].to_numpy(), dtype=torch.float64)
         y = torch.tensor((training_data["Label"] == "malicious").to_numpy(), dtype=torch.float32)
@@ -221,10 +221,10 @@ def main():
 
         m = AttackDetectionNet()
         print(m)
-        m.fit(list(zip(X_train, y_train)), batch_size=args.batch_size, epochs=args.epochs, telegram_bot=tb)
+        m.fit(list(zip(X_train, y_train)), batch_size=args.batch_size, epochs=args.epochs, telegram_bot=None)
 
         if not args.dry_run:
-            torch.save(m, f"{time.strftime('%Y%m%d-%H%M%S')}.pt")
+            torch.save(m, f"ssh_detection_model_{time.strftime('%Y%m%d-%H%M%S')}.pt")
 
         out_q = dpa_inference(m, numpy.rint(X_test.numpy() * Q_SCALE))
         y_pred = torch.from_numpy((out_q > DEVICE_THRESHOLD_Q).astype(numpy.int32))
@@ -236,7 +236,7 @@ def main():
         if mismatches:
             print(f"WARNING: fake-quant forward pass and DPA integer reference disagree on {mismatches} of {len(y_pred)} test flows.")
 
-        print_metrics("All flows (DPA integer inference)", y_true, y_pred, telegram_bot=tb)
+        print_metrics("All flows (DPA integer inference)", y_true, y_pred, telegram_bot=None)
         #print_metrics("SSH flows only", y_true[ssh_test], y_pred[ssh_test], telegram_bot=tb)
         #print_metrics("Baseline: port 22 => malicious", y_true, ssh_test.int(), telegram_bot=tb)
 

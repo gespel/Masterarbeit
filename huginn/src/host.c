@@ -272,26 +272,32 @@ int main() {
 		/*fprintf(stdout, "million pkt/s: %.2f, cycles/pkt: %.1f, flow table: %lu/%u (%.1f%%), collisions: %.3f%%\n",
 			((count - last) / (t - last_t)) / 1000000, count ? (double)cycles / count : 0.0,
 			used, 1u << LOG_FLOW_ENTRIES, 100.0 * used / (1u << LOG_FLOW_ENTRIES), coll_pct);*/
+		/*if (duration <= 5) {
+			print_logo();
+		}*/
 		fprintf(stderr, 
-				"million pkt/s: " C_GRN "%.2f" C_RST
-				", cycles/pkt: " C_YEL "%.1f" C_RST
-				", flow table: " C_CYN "%lu/%u (%.1f%%)" C_RST
-				", collisions: " C_RED "%.3f%%" C_RST
-				", inferred: " C_MAG "%f" C_RST " million flows/s\n",
+				"----------------------------------\n"
+				"million pkt/s: " C_GRN "%.2f" C_RST "\n"
+				"cycles/pkt: " C_YEL "%.1f" C_RST "\n"
+				"flow table: " C_CYN "%lu/%u (%.1f%%)" C_RST "\n"
+				"collisions: " C_RED "%.3f%%" C_RST "\n"
+				"inferred: " C_MAG "%f" C_RST " million flows/s\n"
+				"malicious: " C_RED "%.3f%%" C_RST "\n",
 			((count - last) / (t - last_t)) / 1000000, 
 			count ? (double)cycles / count : 0.0,
 			used, 
 			NUM_EUS << LOG_FLOW_ENTRIES,
 			100.0 * used / (NUM_EUS << LOG_FLOW_ENTRIES),
 			coll_pct, 
-			(inferred - last_inferred) / (t - last_t) / 1000000
+			(inferred - last_inferred) / (t - last_t) / 1000000,
+			mal_pct
 		);
 		last = count;
 		last_coll = coll;
 		last_t = t;
 		last_inferred = inferred;
 		last_mal = mal;
-		//duration += 1;
+		duration += 1;
 		//if (duration >= 30) {
 		//	break;
 		//}

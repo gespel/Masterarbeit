@@ -36,7 +36,7 @@ const static char *logo[] = {
 "                     @@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
 "                         @@@@@@@@@@@@@@@@@@@@\n\n"
 "   ------------------------------------------------------------------\n"
-"        Huginn - A DPA-based Network Intrusion Detection System\n" 
+"         Huginn - ML-based Network Intrusion Detection System\n" 
 "                https://github.com/gespel/Masterarbeit/\n"    
 "   ------------------------------------------------------------------\n\n\n"             
 };

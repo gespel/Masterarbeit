@@ -1,6 +1,8 @@
 import torch
 import argparse
 
+from flowextractor.model.model import AttackDetectionNet
+
 FRAC_BITS = 15
 Q_SCALE = 1 << FRAC_BITS
 Q_MIN, Q_MAX = -(1 << 15), (1 << 15) - 1
@@ -116,7 +118,7 @@ def main() -> None:
     arg.add_argument("--output", type=str, default="model.h", help="Path to the output C header file.")
     args = arg.parse_args()
     
-    m = torch.load(args.model)
+    m = torch.load(args.model, weights_only=False)
     mc = ModelCompiler()
     text = mc.compile(m)
 
