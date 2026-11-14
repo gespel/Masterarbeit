@@ -1,4 +1,6 @@
 import torch
+import argparse
+
 FRAC_BITS = 15
 Q_SCALE = 1 << FRAC_BITS
 Q_MIN, Q_MAX = -(1 << 15), (1 << 15) - 1
@@ -109,11 +111,16 @@ class ModelCompiler:
         return out
 
 def main() -> None:
-    m = TestNetwork()
-    compiler = ModelCompiler()
-    text = compiler.compile(m)
+    arg = argparse.ArgumentParser(description="Compile a PyTorch model to C code.")
+    arg.add_argument("--model", type=str, default="test_model.pt", help="Path to the PyTorch model file.")
+    arg.add_argument("--output", type=str, default="model.h", help="Path to the output C header file.")
+    args = arg.parse_args()
+    
+    m = torch.load(args.model)
+    mc = ModelCompiler()
+    text = mc.compile(m)
 
-    with open("model.h", "w") as f:
+    with open(args.output, "w") as f:
         f.write(text)
 
 if __name__ == "__main__":
