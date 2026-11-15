@@ -98,10 +98,10 @@ class QReLU(torch.nn.Module):
 
 
 class AttackDetectionNet(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, input_vector_size=10):
         super().__init__()
         self.layers = torch.nn.Sequential(
-            QLinear(10, 16),
+            QLinear(input_vector_size, 16),
             QReLU(),
             QLinear(16, 16),
             QReLU(),
