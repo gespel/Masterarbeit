@@ -22,12 +22,14 @@ def filter_ssh_packets(packets):
 def main():
     arg_parser = argparse.ArgumentParser(description="Extract flows from a pcap file and record packets.")
     arg_parser.add_argument("pcap_file", type=str, help="Path to the pcap file to read")
+    arg_parser.add_argument("--unidirectional", action="store_true",
+                            help="Treat each packet direction as a separate flow (default: bidirectional flows)")
 
     args = arg_parser.parse_args()
 
     packets = read_pcap(args.pcap_file)
 
-    flow_manager = FlowTableManager()
+    flow_manager = FlowTableManager(bidirectional=not args.unidirectional)
     for pkt in tqdm(packets, desc="Processing packets"):
         flow_manager.add_packet(pkt)
 

@@ -9,7 +9,12 @@ from flowextractor.dataset import gobuster
 from flowextractor.dataset import slowloris
 
 
-def canonical_five_tuple(packet):
+def canonical_five_tuple(packet, bidirectional=True):
+    """Liefert das 5-Tupel eines Pakets.
+
+    bidirectional=True: Endpunkte werden sortiert, beide Richtungen ergeben denselben Flow.
+    bidirectional=False: Tupel bleibt in Paketrichtung, Hin- und Rueckrichtung sind getrennte Flows.
+    """
     if not packet.haslayer(IP) or (not packet.haslayer(TCP) and not packet.haslayer(UDP)):
         return None
 
@@ -20,24 +25,25 @@ def canonical_five_tuple(packet):
     src_port, dst_port = layer_4.sport, layer_4.dport
     src_key, dst_key = int(ipaddress.IPv4Address(src_ip)), int(ipaddress.IPv4Address(dst_ip))
 
-    if src_key > dst_key or (src_key == dst_key and src_port > dst_port):
+    if bidirectional and (src_key > dst_key or (src_key == dst_key and src_port > dst_port)):
         src_ip, dst_ip = dst_ip, src_ip
         src_port, dst_port = dst_port, src_port
 
     return src_ip, dst_ip, src_port, dst_port, ip_layer.proto
 
-def calculate_packet_hash(packet):
-    five_tuple = canonical_five_tuple(packet)
+def calculate_packet_hash(packet, bidirectional=True):
+    five_tuple = canonical_five_tuple(packet, bidirectional)
     if five_tuple is None:
         return None
     return hash(five_tuple)
 
 class FlowTableManager:
-    def __init__(self):
+    def __init__(self, bidirectional=True):
         self.flow_table = {}
+        self.bidirectional = bidirectional
 
     def add_packet(self, packet):
-        five_tuple = canonical_five_tuple(packet)
+        five_tuple = canonical_five_tuple(packet, self.bidirectional)
         if five_tuple is None:
             return
         flow_hash = hash(five_tuple)
@@ -100,8 +106,10 @@ class FlowTableManager:
     def write_flow_vectors_to_csv(self, file_path):
         flow_vectors = []
         delete = []
+        now = time.time()
         for flow_hash, flow in self.flow_table.items():
-            if time.time() - flow.last_seen_time > 60:
+            flow.close_window_if_idle(now)
+            if now - flow.last_seen_time > 60:
                 for feature_vector in flow.windows:
                     flow_vectors.append([flow_hash] + feature_vector + [flow.label, flow.attack_type])
                 delete.append(flow_hash)
@@ -140,13 +148,14 @@ class FlowTableManager:
         self.flow_table = {}
 
 class Flow:
-    def __init__(self, flow_hash=None, src_ip=None, dst_ip=None, src_port=None, dst_port=None, packets_per_window=5):
+    def __init__(self, flow_hash=None, src_ip=None, dst_ip=None, src_port=None, dst_port=None, packets_per_window=64, idle_timeout=10):
         self.src_ip = src_ip
         self.dst_ip = dst_ip
         self.src_port = src_port
         self.dst_port = dst_port
         self.flow_hash = flow_hash
         self.packets_per_window = packets_per_window
+        self.idle_timeout = idle_timeout
         self.total_packets = 0
         self.rst = 0
         self.psh = 0
@@ -174,7 +183,20 @@ class Flow:
         self.urg = 0
         self.last_packet_time = None
 
+    def _close_window(self):
+        if self.number_of_packets > 0:
+            self.windows.append(self.build_feature_vector())
+        self._reset_window()
+
+    def close_window_if_idle(self, now):
+        """Schliesst das aktuelle (unvollstaendige) Fenster, wenn seit idle_timeout Sekunden kein Paket kam."""
+        if self.last_packet_time is not None and now - self.last_packet_time > self.idle_timeout:
+            self._close_window()
+
     def add_packet(self, packet):
+        # Laengere Pause seit dem letzten Paket -> bisheriges Fenster als eigenen Flow abschliessen
+        self.close_window_if_idle(packet.time)
+
         self.total_packets += 1
         self.number_of_packets += 1
 
@@ -202,8 +224,7 @@ class Flow:
         self.last_packet_time = packet.time
 
         if self.number_of_packets == self.packets_per_window:
-            self.windows.append(self.build_feature_vector())
-            self._reset_window()
+            self._close_window()
 
     def build_feature_vector(self):
         out_vector = [
@@ -216,7 +237,7 @@ class Flow:
             self.min_packet_size,
             self.max_packet_size,
             self.total_bytes,
-            self.iat_min,
+            self.iat_min if self.iat_min != float('inf') else 0,
             self.iat_max,
             self.iat_mean,
             self.rst,

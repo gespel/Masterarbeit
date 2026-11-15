@@ -24,8 +24,8 @@ class PacketRecorder:
         else:
             logger.info("No packets to save.")
 
-    def record(self, length: int, save_output: bool, mode: str):
-        flow_table = FlowTableManager()
+    def record(self, length: int, save_output: bool, mode: str, bidirectional: bool = True):
+        flow_table = FlowTableManager(bidirectional=bidirectional)
         i = 0
 
         attacker_ip = input("Enter the attacker IP for Slowloris detection: ")
@@ -84,10 +84,12 @@ def main():
     arg_parser.add_argument("--record_length", type=int, help="Length of time to record packets in seconds")
     arg_parser.add_argument("--save_output", type=bool, help="Whether to save the recorded packets to a file")
     arg_parser.add_argument("--mode", type=str, help="Defines the mode of operation for flow recording")
+    arg_parser.add_argument("--unidirectional", action="store_true",
+                            help="Treat each packet direction as a separate flow (default: bidirectional flows)")
     args = arg_parser.parse_args()
 
     recorder = PacketRecorder()
-    recorder.record(length=args.record_length, save_output=args.save_output, mode=args.mode)
+    recorder.record(length=args.record_length, save_output=args.save_output, mode=args.mode, bidirectional=not args.unidirectional)
 
 if __name__ == "__main__":
     main()
