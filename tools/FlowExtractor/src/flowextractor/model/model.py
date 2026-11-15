@@ -120,13 +120,17 @@ class AttackDetectionNet(torch.nn.Module):
         for p in self.parameters():
             p.clamp_(Q_MIN / Q_SCALE, Q_MAX / Q_SCALE)
 
-    def fit(self, training_data, epochs=200, learning_rate=0.001, batch_size=32, telegram_bot: TelegramBot = None):
+    def fit(self, training_data, epochs=200, learning_rate=0.001, batch_size=32, pos_weight=None, telegram_bot: TelegramBot = None):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Training on {device}.")
         self.to(device)
         self.train()
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
-        loss_fn = torch.nn.BCEWithLogitsLoss()
+        # pos_weight > 1 gewichtet malicious-Samples staerker, um das Klassenungleichgewicht auszugleichen
+        if pos_weight is not None:
+            print(f"Using pos_weight={pos_weight:.2f} for malicious samples.")
+            pos_weight = torch.tensor(pos_weight, dtype=torch.float64, device=device)
+        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
         for epoch in tqdm.tqdm(range(epochs), desc="Training Epochs"):
             total_loss = 0
@@ -187,6 +191,19 @@ def print_metrics(name, y_true, y_pred, telegram_bot: TelegramBot = None):
             telegram_bot.send_message(793377854, f"Metrics for {name}:\nTP: {TP}, FP: {FP}, TN: {TN}, FN: {FN}\nPrecision: {precision * 100:.2f} %, Recall: {recall * 100:.2f} %, F1 Score: {2 * precision * recall / (precision + recall) * 100:.2f} %")
 
 
+def resolve_pos_weight(value, y_train):
+    value = value.lower()
+    if value == "none":
+        return None
+    if value == "auto":
+        n_malicious = int(y_train.sum())
+        if n_malicious == 0:
+            print("WARNING: no malicious samples in the training set, training without pos_weight.")
+            return None
+        return (len(y_train) - n_malicious) / n_malicious
+    return float(value)
+
+
 def main():
     #tb = TelegramBot()
 
@@ -197,6 +214,8 @@ def main():
     argparser.add_argument("--dry_run", action="store_true", help="If set, the script will train the model but will not save it.")
     argparser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible training.")
     argparser.add_argument("--loop", action="store_true", help="If set, the script will run in a loop, retraining the model every hour.")
+    argparser.add_argument("--pos_weight", type=str, default="auto",
+                           help="Loss weight for malicious samples: 'auto' (benign/malicious ratio of the training set), 'none' (unweighted) or a number.")
     args = argparser.parse_args()
 
     if args.seed is not None:
@@ -219,9 +238,11 @@ def main():
         #ssh_test = is_ssh[split:]
         print(f"Train: {len(y_train)} samples ({int(y_train.sum())} malicious), Test: {len(y_test)} samples ({int(y_test.sum())} malicious)")
 
+        pos_weight = resolve_pos_weight(args.pos_weight, y_train)
+
         m = AttackDetectionNet()
         print(m)
-        m.fit(list(zip(X_train, y_train)), batch_size=args.batch_size, epochs=args.epochs, telegram_bot=None)
+        m.fit(list(zip(X_train, y_train)), batch_size=args.batch_size, epochs=args.epochs, pos_weight=pos_weight, telegram_bot=None)
 
         if not args.dry_run:
             torch.save(m, f"ssh_detection_model_{time.strftime('%Y%m%d-%H%M%S')}.pt")
