@@ -8,7 +8,7 @@ import time
 from torch.utils.data import DataLoader
 from flowextractor.tools.telegram import TelegramBot
 
-FEATURE_COLUMNS = ["Number of Packets", "Source Port", "Destination Port", "Average Packet Size", "Minimum Packet Size", "Maximum Packet Size", "Total Bytes", "IAT Min", "IAT Max", "IAT Mean"]
+FEATURE_COLUMNS = ["Number of Packets", "Source Port", "Destination Port", "Average Packet Size", "Minimum Packet Size", "Maximum Packet Size", "Total Bytes", "IAT Min", "IAT Max", "IAT Mean", "RST", "PSH", "FIN", "URG"]
 LOG_SCALED_COLUMNS = ["Total Bytes", "IAT Min", "IAT Max", "IAT Mean"]
 
 Q_SHIFT = 15
@@ -67,6 +67,10 @@ def device_features(df):
         f_log2(iat_min),
         f_log2(iat_max),
         f_log2(iat_mean),
+        f_lin(_u32(df["RST"]), 8),
+        f_lin(_u32(df["PSH"]), 8),
+        f_lin(_u32(df["FIN"]), 8),
+        f_lin(_u32(df["URG"]), 8),
     ], axis=1).astype(numpy.int64)
 
 
@@ -98,7 +102,7 @@ class QReLU(torch.nn.Module):
 
 
 class AttackDetectionNet(torch.nn.Module):
-    def __init__(self, input_vector_size=10):
+    def __init__(self, input_vector_size=14):
         super().__init__()
         self.layers = torch.nn.Sequential(
             QLinear(input_vector_size, 16),
