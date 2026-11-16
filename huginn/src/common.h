@@ -61,6 +61,7 @@ struct five_tuple {
 	uint8_t rst;
 	uint8_t psh;
 	uint8_t fin;
+	uint8_t urg;
 };
 
 struct flow {
@@ -77,6 +78,7 @@ struct flow {
 	uint32_t rst_count;
 	uint32_t psh_count;
 	uint32_t fin_count;
+	uint32_t urg_count;
 
 	uint16_t pkt_min;
 	uint16_t pkt_max;

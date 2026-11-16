@@ -7,7 +7,7 @@
 #include "../common.h"
 #include "../model.h"
 
-#define NN_FEATURES 10
+#define NN_FEATURES 14
 #define NN_THRESHOLD (1 << (NN_SHIFT - 1))
 
 static inline uint16_t read_u16(const uint8_t *p) {
@@ -35,9 +35,10 @@ static void parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple
 	if ((t->proto == IPPROTO_TCP || t->proto == IPPROTO_UDP) && !(read_u16(ip + IP_FRAG) & IP_FRAG_OFFSET) && ip_hdr_len >= 20 && len >= ETH_HDR_LEN + ip_hdr_len + 4) {
 		t->src_port = read_u16(ip + ip_hdr_len);
 		t->dst_port = read_u16(ip + ip_hdr_len + 2);
-		t->rst = ip[ip_hdr_len + 13] & 0x04;
-		t->psh = ip[ip_hdr_len + 13] & 0x08;
-		t->fin = ip[ip_hdr_len + 13] & 0x01;
+		t->rst = (ip[ip_hdr_len + 13] >> 2) & 1;
+		t->psh = (ip[ip_hdr_len + 13] >> 3) & 1;
+		t->fin = (ip[ip_hdr_len + 13] >> 0) & 1;
+		t->urg = (ip[ip_hdr_len + 13] >> 5) & 1;
 	}
 
 	if (t->src_ip > t->dst_ip || (t->src_ip == t->dst_ip && t->src_port > t->dst_port)) {
@@ -103,6 +104,7 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 		f->rst_count = 0;
 		f->psh_count = 0;
 		f->fin_count = 0;
+		f->urg_count = 0;
 		f->pkt_min = 0xffff;
 		f->pkt_max = 0;
 		f->suspicion_score = 0;
@@ -140,16 +142,20 @@ static void extract_features(const struct flow *f, int16_t in[NN_FEATURES]) {
 	uint32_t n = f->total_pkts;
 	uint32_t iat_mean = n > 1 ? f->iat_sum / (n - 1) : 0;
 
-	in[0] = f_lin(n, 8);                    /* Number of Packets */
-	in[1] = f_lin(f->t.src_port >> 1, 0);   /* Source Port */
-	in[2] = f_lin(f->t.dst_port >> 1, 0);   /* Destination Port */
-	in[3] = f_lin(f->total_bytes / n, 4);   /* Average Packet Size */
-	in[4] = f_lin(f->pkt_min, 4);           /* Minimum Packet Size */
-	in[5] = f_lin(f->pkt_max, 4);           /* Maximum Packet Size */
-	in[6] = f_log2(f->total_bytes);         /* Total Bytes */
-	in[7] = f_log2(f->iat_min);             /* IAT Min (µs) */
-	in[8] = f_log2(f->iat_max);             /* IAT Max (µs) */
-	in[9] = f_log2(iat_mean);               /* IAT Mean (µs) */
+	in[0] = f_lin(n, 8);                   
+	in[1] = f_lin(f->t.src_port >> 1, 0);   
+	in[2] = f_lin(f->t.dst_port >> 1, 0);   
+	in[3] = f_lin(f->total_bytes / n, 4);   
+	in[4] = f_lin(f->pkt_min, 4);           
+	in[5] = f_lin(f->pkt_max, 4);           
+	in[6] = f_log2(f->total_bytes);        
+	in[7] = f_log2(f->iat_min);             
+	in[8] = f_log2(f->iat_max);             
+	in[9] = f_log2(iat_mean);               
+	in[10] = f_lin(f->rst_count, 8);          
+	in[11] = f_lin(f->psh_count, 8);          
+	in[12] = f_lin(f->fin_count, 8);       
+	in[13] = f_lin(f->urg_count, 8);
 }
 
 flexio_dev_event_handler_t pkt_handler;
@@ -196,6 +202,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			f->rst_count += t.rst;
 			f->psh_count += t.psh;
 			f->fin_count += t.fin;
+			f->urg_count += t.urg;
 
 			if (f->total_pkts == NUM_PCKGS_BEFORE_CLASSIFICATION) {
 				int16_t in[NN_FEATURES], out[NN_H4];
