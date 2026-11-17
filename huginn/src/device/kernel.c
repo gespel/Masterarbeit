@@ -22,6 +22,61 @@ static inline uint32_t read_u32(const uint8_t *p) {
 	return be32_to_cpu(v);
 }
 
+static inline int16_t f_lin(uint32_t v, unsigned shift) {
+	return v > ((uint32_t)INT16_MAX >> shift) ? INT16_MAX : (int16_t)(v << shift);
+}
+
+static inline int16_t f_log2(uint32_t v) {
+	if (v <= 1) {
+		return 0;
+	}
+	unsigned lz = __builtin_clz(v);
+	uint32_t frac = (v << (lz + 1)) >> 22;
+	return (int16_t)(((31 - lz) << 10) | frac);
+}
+
+static void flow_free(struct pkt_ctx *c, struct flow *f) {
+	c->used--;
+	f->state = FLOW_STATE_NEW;
+}
+
+static void extract_features(const struct flow *f, int16_t in[NN_FEATURES]) {
+	uint32_t n = f->total_pkts;
+	uint32_t iat_mean = n > 1 ? f->iat_sum / (n - 1) : 0;
+
+	in[0] = f_lin(n, 8);                   
+	in[1] = f_lin(f->t.src_port >> 1, 0);   
+	in[2] = f_lin(f->t.dst_port >> 1, 0);   
+	in[3] = f_lin(f->total_bytes / n, 4);   
+	in[4] = f_lin(f->pkt_min, 4);           
+	in[5] = f_lin(f->pkt_max, 4);           
+	in[6] = f_log2(f->total_bytes);        
+	in[7] = f_log2(f->iat_min);             
+	in[8] = f_log2(f->iat_max);             
+	in[9] = f_log2(iat_mean);               
+	in[10] = f_lin(f->rst_count, 8);          
+	in[11] = f_lin(f->psh_count, 8);          
+	in[12] = f_lin(f->fin_count, 8);       
+	in[13] = f_lin(f->urg_count, 8);
+}
+
+int infer_flow(struct pkt_ctx *c, struct flow *f) {
+	int16_t in[NN_FEATURES], out[NN_H4];
+
+	extract_features(f, in);
+	neural_network(in, out);
+	int malicious = out[0] > NN_THRESHOLD;
+	c->inferred++;
+	c->malicious += malicious;
+	if (malicious) {
+		//__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED); // other EUs read it concurrently
+		flow_free(c, f);
+	} else {
+		flow_free(c, f);
+	}
+	return malicious;
+}
+
 static void parse_five_tuple(const uint8_t *pkt, uint32_t len, struct five_tuple *t) {
 	const uint8_t *ip = pkt + ETH_HDR_LEN;
 	uint32_t ip_hdr_len = (ip[0] & 0xf) * 4;
@@ -61,11 +116,6 @@ static inline int flow_expired(const struct flow *f, uint32_t now) {
 	}
 }
 
-static void flow_free(struct pkt_ctx *c, struct flow *f) {
-	c->used--;
-	f->state = FLOW_STATE_NEW;
-}
-
 static int tuple_eq(const struct five_tuple *a, const struct five_tuple *b) {
 	return a->src_ip == b->src_ip && a->dst_ip == b->dst_ip && a->src_port == b->src_port && a->dst_port == b->dst_port && a->proto == b->proto;
 }
@@ -79,7 +129,13 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 		struct flow *f = &bucket[i];
 
 		if (flow_expired(f, (uint32_t)__dpa_thread_time())) {
-			flow_free(c, f);
+			int malicious = infer_flow(c, f);
+			if(malicious) {
+				flow_free(c, f);
+			}
+			else {
+				flow_free(c, f);
+			}
 		}
 
 		if (f->state == FLOW_STATE_NEW) {
@@ -115,18 +171,7 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 	return NULL;
 }
 
-static inline int16_t f_lin(uint32_t v, unsigned shift) {
-	return v > ((uint32_t)INT16_MAX >> shift) ? INT16_MAX : (int16_t)(v << shift);
-}
 
-static inline int16_t f_log2(uint32_t v) {
-	if (v <= 1) {
-		return 0;
-	}
-	unsigned lz = __builtin_clz(v);
-	uint32_t frac = (v << (lz + 1)) >> 22;
-	return (int16_t)(((31 - lz) << 10) | frac);
-}
 
 static inline void bucket_cleaner(struct pkt_ctx *c, struct flow *bucket, unsigned int size, uint32_t now) {
 	for (unsigned int i = 0; i < size; i++) {
@@ -138,25 +183,9 @@ static inline void bucket_cleaner(struct pkt_ctx *c, struct flow *bucket, unsign
 	}
 }
 
-static void extract_features(const struct flow *f, int16_t in[NN_FEATURES]) {
-	uint32_t n = f->total_pkts;
-	uint32_t iat_mean = n > 1 ? f->iat_sum / (n - 1) : 0;
 
-	in[0] = f_lin(n, 8);                   
-	in[1] = f_lin(f->t.src_port >> 1, 0);   
-	in[2] = f_lin(f->t.dst_port >> 1, 0);   
-	in[3] = f_lin(f->total_bytes / n, 4);   
-	in[4] = f_lin(f->pkt_min, 4);           
-	in[5] = f_lin(f->pkt_max, 4);           
-	in[6] = f_log2(f->total_bytes);        
-	in[7] = f_log2(f->iat_min);             
-	in[8] = f_log2(f->iat_max);             
-	in[9] = f_log2(iat_mean);               
-	in[10] = f_lin(f->rst_count, 8);          
-	in[11] = f_lin(f->psh_count, 8);          
-	in[12] = f_lin(f->fin_count, 8);       
-	in[13] = f_lin(f->urg_count, 8);
-}
+
+
 
 flexio_dev_event_handler_t pkt_handler;
 __dpa_global__ void pkt_handler(uint64_t arg) {
@@ -205,19 +234,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 			f->urg_count += t.urg;
 
 			if (f->total_pkts == NUM_PCKGS_BEFORE_CLASSIFICATION) {
-				int16_t in[NN_FEATURES], out[NN_H4];
-
-				extract_features(f, in);
-				neural_network(in, out);
-				int malicious = out[0] > NN_THRESHOLD;
-				c->inferred++;
-				c->malicious += malicious;
-				if (malicious) {
-					//__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED); // other EUs read it concurrently
-					flow_free(c, f);
-				} else {
-					flow_free(c, f);
-				}
+				infer_flow(c, f);
 			}
 		}
 
