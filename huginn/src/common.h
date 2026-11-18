@@ -21,7 +21,7 @@
 #define NUM_FLOW_GENERATIONS 4 // number of generations to keep in the flow table
 
 #define FLOW_BUCKET_SIZE 8
-#define NUM_PCKGS_BEFORE_CLASSIFICATION 64
+#define NUM_PCKGS_BEFORE_CLASSIFICATION 8
 
 typedef enum FlowState {
 	FLOW_STATE_NEW = 0,
