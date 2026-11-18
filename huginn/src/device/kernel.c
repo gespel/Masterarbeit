@@ -178,7 +178,14 @@ static inline void bucket_cleaner(struct pkt_ctx *c, struct flow *bucket, unsign
 		struct flow *f = &bucket[i];
 
 		if (f->state != FLOW_STATE_NEW && now - f->last_seen > 10000000) { // 10 seconds
-			flow_free(c, f);
+			int malicious = infer_flow(c, f);
+
+			if (malicious) {
+				flow_free(c, f);
+			}
+			else {
+				flow_free(c, f);
+			}
 		}
 	}
 }
