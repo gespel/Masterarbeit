@@ -42,7 +42,7 @@ def main():
         for est in rf.estimators_:
             print(f"Tree depth: {est.get_depth()}, Number of leaves: {est.get_n_leaves()}")
             t = est.tree_
-            print(f"{t.threshold.tolist()}")
+            print(f"{t.feature.tolist()} {t.threshold.tolist()}")
 
         #for test_sample, label in zip(X_test.values, y_test.values):
         #    prediction = rf.predict([test_sample])[0]
