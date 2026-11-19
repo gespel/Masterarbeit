@@ -39,6 +39,11 @@ def main():
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
         print(f"Precision: {precision*100:.2f}, Recall: {recall*100:.2f}, F1 Score: {f1_score*100:.2f}")
 
+        for est in rf.estimators_:
+            print(f"Tree depth: {est.get_depth()}, Number of leaves: {est.get_n_leaves()}")
+            t = est.tree_
+            print(f"{t.threshold.tolist()}")
+
         #for test_sample, label in zip(X_test.values, y_test.values):
         #    prediction = rf.predict([test_sample])[0]
         #    print(f"True Label: {label}, Predicted Label: {prediction}")
