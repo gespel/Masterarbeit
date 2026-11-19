@@ -8,7 +8,7 @@ def train_test_split(X, y, test_size=0.2, random_state=42):
 def main():
     args = argparse.ArgumentParser(description="Random Forest Classifier")
     args.add_argument("--n_estimators", type=int, default=10, help="Number of trees in the forest")
-    args.add_argument("--max_depth", type=int, default=None, help="Maximum depth of the tree")
+    args.add_argument("--max_depth", type=int, default=10, help="Maximum depth of the tree")
     args.add_argument("--feature_csv", type=str, required=True, help="Path to the CSV file containing features")
     args = args.parse_args()
 
