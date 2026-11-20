@@ -44,6 +44,9 @@ def main():
             t = est.tree_
             print(f"{t.feature.tolist()} {t.threshold.tolist()}")
 
+            for node_index in range(t.node_count):
+                print(f"Node {node_index}: Feature {t.feature[node_index]}, Threshold {t.threshold[node_index]}, Left {t.children_left[node_index]}, Right {t.children_right[node_index]}")
+
         #for test_sample, label in zip(X_test.values, y_test.values):
         #    prediction = rf.predict([test_sample])[0]
         #    print(f"True Label: {label}, Predicted Label: {prediction}")
