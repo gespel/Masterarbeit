@@ -129,6 +129,37 @@ class AnomalyDetectionNet(torch.nn.Module):
         for p in self.parameters():
             p.clamp_(Q_MIN / Q_SCALE, Q_MAX / Q_SCALE)
 
+    def fit(self, training_data, epochs=200, learning_rate=0.001, batch_size=32, pos_weight=None, telegram_bot: TelegramBot = None):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Training on {device}.")
+        self.to(device)
+        self.train()
+        optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
+        # pos_weight > 1 gewichtet malicious-Samples staerker, um das Klassenungleichgewicht auszugleichen
+        if pos_weight is not None:
+            print(f"Using pos_weight={pos_weight:.2f} for malicious samples.")
+            pos_weight = torch.tensor(pos_weight, dtype=torch.float64, device=device)
+        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
+        for epoch in tqdm.tqdm(range(epochs), desc="Training Epochs"):
+            total_loss = 0
+            for x, y in tqdm.tqdm(dataloader, leave=False):
+                x, y = x.to(device), y.to(device)
+                optimizer.zero_grad()
+                y_pred = self.forward(x)
+                loss = loss_fn(y_pred, y.unsqueeze(1).to(y_pred.dtype))
+                loss.backward()
+                optimizer.step()
+                self.clip_parameters()
+                total_loss += loss.item()
+            tqdm.tqdm.write(f"Epoch {epoch+1}/{epochs} completed. average loss: {total_loss/len(dataloader)}")
+            if telegram_bot:
+                if (epoch + 1) % 50 == 0:
+                    telegram_bot.send_message(793377854, f"Epoch {epoch+1}/{epochs} completed. average loss: {total_loss/len(dataloader)}")
+        self.to("cpu")
+        self.eval()
+        print("Training finished.")
+
 class AttackDetectionNet(torch.nn.Module):
     def __init__(self, input_vector_size=14):
         super().__init__()
@@ -259,7 +290,7 @@ def main():
         print(training_data.info())
         #tb.send_message(793377854, f"Training data loaded. {len(training_data)} samples available. Starting training now...")
 
-        x = torch.tensor(training_data[FEATURE_COLUMNS].to_numpy(), dtype=torch.float64)
+        x = torch.tensor(training_data.drop([FEATURE_COLUMNS].to_numpy(), dtype=torch.float64)
         y = torch.tensor((training_data["Label"] == "malicious").to_numpy(), dtype=torch.float32)
         #is_ssh = torch.tensor(((raw_data["Source Port"] == 22) | (raw_data["Destination Port"] == 22)).to_numpy())
 

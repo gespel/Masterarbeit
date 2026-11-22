@@ -40,6 +40,80 @@ static void flow_free(struct pkt_ctx *c, struct flow *f) {
 	f->state = FLOW_STATE_NEW;
 }
 
+static inline void sq_poll(struct pkt_ctx *c) {
+	struct flexio_dev_cqe64 *ring = (struct flexio_dev_cqe64 *)c->sq_cq_ring;
+	uint32_t n = 0;
+
+	while (flexio_dev_cqe_get_owner(&ring[c->sq_cq_ci & SQ_MASK]) == ((c->sq_cq_ci >> LOG_SQ_DEPTH) & 1)) {
+		struct flexio_dev_cqe64 *cqe = &ring[c->sq_cq_ci & SQ_MASK];
+		uint16_t wc = flexio_dev_cqe_get_wqe_counter(cqe);
+
+		if (flexio_dev_cqe_get_opcode(cqe) >= 0xd) {
+			c->sq_errors++;
+		}
+		c->sq_ci += (uint16_t)(wc + 1 - (uint16_t)c->sq_ci);
+		c->mal_acked = c->sq_rec_end[wc & SQ_MASK];
+		c->sq_cq_ci++;
+		n++;
+	}
+	if (n) {
+		flexio_dev_dbr_cq_set_ci((uint32_t *)c->sq_cq_dbr, c->sq_cq_ci);
+	}
+}
+
+static inline void sq_post(struct pkt_ctx *c, uint64_t from, uint32_t n) {
+	uint64_t end = from + n;
+	uint32_t off = (uint32_t)(from & MAL_RING_MASK) * sizeof(struct malicious_flow_record);
+	union flexio_dev_sqe_seg *s = (union flexio_dev_sqe_seg *)c->sq_ring + (c->sq_pi & SQ_MASK) * 4;
+	int signal = (c->sq_pi & (SIG_EVERY - 1)) == SIG_EVERY - 1 || end - c->mal_acked >= MAL_RING_SIZE / 2;
+
+	flexio_dev_swqe_seg_ctrl_set(&s[0], c->sq_pi, c->qp_num,
+		signal ? FLEXIO_CTRL_SEG_CE_CQE_ALWAYS : FLEXIO_CTRL_SEG_CE_CQE_ON_CQE_ERROR,
+		FLEXIO_CTRL_SEG_TYPE_RDMA_WRITE);
+	flexio_dev_swqe_seg_rdma_set(&s[1], c->mal_rkey, c->mal_raddr + off);
+	flexio_dev_swqe_seg_mem_ptr_data_set(&s[2], n * sizeof(struct malicious_flow_record), c->mal_lkey, c->mal_stage + off);
+	c->sq_rec_end[c->sq_pi & SQ_MASK] = end;
+	c->sq_pi++;
+}
+
+static void mal_flush(struct pkt_ctx *c) {
+	sq_poll(c);
+
+	uint64_t from = c->mal_posted, to = c->mal_pi;
+	if (from == to || c->sq_pi - c->sq_ci > SQ_DEPTH - 2) {
+		return;
+	}
+
+	uint32_t room = MAL_RING_SIZE - (uint32_t)(from & MAL_RING_MASK);
+	if (to - from > room) {
+		sq_post(c, from, room);
+		sq_post(c, from + room, (uint32_t)(to - from - room));
+	} else {
+		sq_post(c, from, (uint32_t)(to - from));
+	}
+	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
+	flexio_dev_qp_sq_ring_db((uint16_t)c->sq_pi, c->qp_num);
+	c->mal_posted = to;
+}
+
+static void mal_report(struct pkt_ctx *c, const struct flow *f, int16_t score) {
+	if (c->mal_pi - c->mal_acked >= MAL_RING_SIZE) {
+		sq_poll(c);
+		if (c->mal_pi - c->mal_acked >= MAL_RING_SIZE) {
+			c->mal_dropped++;
+			return;
+		}
+	}
+
+	struct malicious_flow_record *r = (struct malicious_flow_record *)c->mal_stage + (c->mal_pi & MAL_RING_MASK);
+	__builtin_memcpy(&r->f, f, sizeof(*f));
+	r->score = score;
+	r->eu = (uint16_t)c->eu;
+	r->ts = (uint32_t)__dpa_thread_time();
+	r->seq = (uint32_t)(c->mal_pi + 1);
+	c->mal_pi++;
+}
+
 static void extract_features(const struct flow *f, int16_t in[NN_FEATURES]) {
 	uint32_t n = f->total_pkts;
 	uint32_t iat_mean = n > 1 ? f->iat_sum / (n - 1) : 0;
@@ -69,6 +143,7 @@ int infer_flow(struct pkt_ctx *c, struct flow *f) {
 	c->inferred++;
 	c->malicious += malicious;
 	if (malicious) {
+		mal_report(c, f, out[0]);
 		//__atomic_store_n(&f->state, FLOW_STATE_SUSPICIOUS, __ATOMIC_RELAXED); // other EUs read it concurrently
 		flow_free(c, f);
 	} else {
@@ -257,6 +332,8 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 	bucket_cleaner(c, (struct flow *)c->flows + c->sweep_index, FLOW_BUCKET_SIZE, (uint32_t)__dpa_thread_time());
 	c->sweep_index = (c->sweep_index + FLOW_BUCKET_SIZE) & FLOW_MASK;
 
+	mal_flush(c);
+
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 	flexio_dev_cq_arm(c->cq_ci, c->cq_num);
 	c->cycles += __dpa_thread_cycles() - start;
@@ -266,7 +343,7 @@ __dpa_global__ void pkt_handler(uint64_t arg) {
 __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out) {
 	const uint64_t *ctx = (const uint64_t *)ctxs;
 	struct stats *s = (struct stats *)out;
-	uint64_t count = 0, cycles = 0, used = 0, collisions = 0, inferred = 0, malicious = 0;
+	uint64_t count = 0, cycles = 0, used = 0, collisions = 0, inferred = 0, malicious = 0, mal_dropped = 0, sq_errors = 0;
 
 	for (uint64_t eu = 0; eu < num_eus; eu++) {
 		struct pkt_ctx *c = (struct pkt_ctx *)ctx[eu];
@@ -277,6 +354,8 @@ __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out
 		used += c->used;
 		inferred += c->inferred;
 		malicious += c->malicious;
+		mal_dropped += c->mal_dropped;
+		sq_errors += c->sq_errors;
 	}
 	s->count = count;
 	s->cycles = cycles;
@@ -284,6 +363,8 @@ __dpa_rpc__ uint64_t collect_stats(uint64_t ctxs, uint64_t num_eus, uint64_t out
 	s->collisions = collisions;
 	s->inferred = inferred;
 	s->malicious = malicious;
+	s->mal_dropped = mal_dropped;
+	s->sq_errors = sq_errors;
 	__dpa_thread_fence(__DPA_MEMORY, __DPA_W, __DPA_W);
 	return 0;
 }

@@ -23,6 +23,14 @@
 #define FLOW_BUCKET_SIZE 8
 #define NUM_PCKGS_BEFORE_CLASSIFICATION 8
 
+#define LOG_MAL_RING   10
+#define MAL_RING_SIZE  (1u << LOG_MAL_RING)
+#define MAL_RING_MASK  (MAL_RING_SIZE - 1)
+#define LOG_SQ_DEPTH   6
+#define SQ_DEPTH       (1u << LOG_SQ_DEPTH)
+#define SQ_MASK        (SQ_DEPTH - 1)
+#define SIG_EVERY      16
+
 typedef enum FlowState {
 	FLOW_STATE_NEW = 0,
 	FLOW_STATE_KNOWN = 1,
@@ -43,6 +51,24 @@ struct pkt_ctx {
 	uint64_t inferred;
 	uint64_t malicious;
 	uint64_t sweep_index;
+	uint32_t eu;
+	uint32_t qp_num;
+	uint64_t sq_ring;
+	uint64_t sq_cq_ring;
+	uint64_t sq_cq_dbr;
+	uint32_t sq_pi;
+	uint32_t sq_ci;
+	uint32_t sq_cq_ci;
+	uint32_t mal_lkey;
+	uint32_t mal_rkey;
+	uint64_t mal_raddr;
+	uint64_t mal_stage;
+	uint64_t mal_pi;
+	uint64_t mal_posted;
+	uint64_t mal_acked;
+	uint64_t mal_dropped;
+	uint64_t sq_errors;
+	uint64_t sq_rec_end[SQ_DEPTH];
 };
 
 struct stats {
@@ -52,6 +78,8 @@ struct stats {
 	uint64_t collisions;
 	uint64_t inferred;
 	uint64_t malicious;
+	uint64_t mal_dropped;
+	uint64_t sq_errors;
 };
 
 struct five_tuple {
@@ -84,6 +112,18 @@ struct flow {
 	uint16_t pkt_max;
 	uint16_t suspicion_score;
 };
+
+struct malicious_flow_record {
+	struct flow f;
+	int16_t score;
+	uint16_t eu;
+	uint32_t ts;
+	uint8_t _pad[128 - sizeof(struct flow) - 12];
+	uint32_t seq;
+} __attribute__((aligned(64)));
+
+_Static_assert(sizeof(struct flow) == 76, "struct flow layout differs between host and DPA");
+_Static_assert(sizeof(struct malicious_flow_record) == 128, "struct malicious_flow_record must be 128 bytes");
 
 // Bob Jenkins' lookup3 final mix as used by jhash_3words() in the Linux kernel.
 static inline uint32_t rol32(uint32_t w, unsigned s)

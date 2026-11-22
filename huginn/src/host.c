@@ -1,4 +1,5 @@
 
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -47,6 +48,19 @@
 #define TIR_SYMMETRIC     (1u << 31)
 #define TIR_FN_TOEPLITZ   (2u << 28)
 #define TIR_HASH_4_TUPLE  0xf
+#define GID_INDEX         0
+
+struct rdma_env {
+	struct ibv_context *ibv;
+	struct ibv_pd *pd;
+	struct ibv_port_attr port;
+	union ibv_gid gid;
+	uint8_t mac[6];
+	struct malicious_flow_record *rings;
+	struct ibv_mr *mr;
+};
+
+static uint64_t mal_received, mal_lost;
 
 static struct flexio_process *proc;
 
@@ -74,7 +88,173 @@ static struct ibv_context *open_ibv(const char *name) {
 	return ctx;
 }
 
-static uint64_t create_handler(struct ibv_context *ibv, struct ibv_pd *pd, uint32_t eu, flexio_uintptr_t flows, struct flexio_rq **rq) {
+static void rdma_env_init(struct rdma_env *env, struct ibv_context *ibv, struct ibv_pd *pd) {
+	env->ibv = ibv;
+	env->pd = pd;
+	DOCA_TRY(ibv_query_port(ibv, 1, &env->port));
+	DOCA_TRY(ibv_query_gid(ibv, 1, GID_INDEX, &env->gid));
+	env->mac[0] = env->gid.raw[8] ^ 2;
+	env->mac[1] = env->gid.raw[9];
+	env->mac[2] = env->gid.raw[10];
+	env->mac[3] = env->gid.raw[13];
+	env->mac[4] = env->gid.raw[14];
+	env->mac[5] = env->gid.raw[15];
+
+	size_t bsize = (size_t)NUM_EUS * MAL_RING_SIZE * sizeof(struct malicious_flow_record);
+	env->rings = aligned_alloc(4096, bsize);
+	DOCA_TRY(!env->rings);
+	memset(env->rings, 0, bsize);
+	env->mr = ibv_reg_mr(pd, env->rings, bsize, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+	DOCA_TRY(!env->mr);
+}
+
+static void dpa_qp_connect(struct flexio_qp *qp, uint32_t remote, struct rdma_env *env) {
+	struct flexio_qp_attr qattr = {
+		.qp_access_mask = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE,
+		.remote_qp_num = remote,
+		.gid_table_index = GID_INDEX,
+		.rgid_or_rip = env->gid,
+		.dest_mac = env->mac,
+		.fl = 0,
+		.grh = 1,
+		.vhca_port_num = 1,
+		.min_rnr_nak_timer = 12,
+		.path_mtu = (enum flexio_qp_qpc_mtu)env->port.active_mtu,
+		.retry_count = 7,
+		.udp_sport = 0xc000,
+		.log_rra_max = 4,
+		.log_sra_max = 4,
+	};
+	struct flexio_qp_attr_opt_param_mask mask = { .qp_access_mask = true, .min_rnr_nak_timer = true };
+	static const enum flexio_qp_state next[] = { FLEXIO_QP_STATE_INIT, FLEXIO_QP_STATE_RTR, FLEXIO_QP_STATE_RTS };
+
+	for (int i = 0; i < 3; i++) {
+		qattr.next_state = next[i];
+		DOCA_TRY(flexio_qp_modify(qp, &qattr, &mask));
+	}
+}
+
+static void setup_mal(struct rdma_env *env, struct flexio_event_handler *eh, uint32_t eu, struct pkt_ctx *ctx) {
+	uint32_t uar = flexio_uar_get_id(flexio_process_get_uar(proc));
+	struct mlx5_cqe64 cqes[SQ_DEPTH] = {0};
+	uint8_t zero[64] = {0};
+
+	for (uint32_t i = 0; i < SQ_DEPTH; i++)
+		mlx5dv_set_cqe_owner(&cqes[i], 1);
+	ctx->sq_cq_ring = to_dpa(cqes, sizeof(cqes));
+	flexio_uintptr_t dbr = to_dpa(zero, sizeof(zero));
+	ctx->sq_cq_dbr = dbr;
+
+	struct flexio_cq *cq;
+	struct flexio_cq_attr cq_attr = {
+		.log_cq_depth = LOG_SQ_DEPTH,
+		.element_type = FLEXIO_CQ_ELEMENT_TYPE_DPA_THREAD,
+		.thread = flexio_event_handler_get_thread(eh),
+		.uar_id = uar,
+		.no_arm = true,
+		.cq_dbr_daddr = dbr,
+		.cq_ring_qmem = { .memtype = FLEXIO_MEMTYPE_DPA, .daddr = ctx->sq_cq_ring },
+	};
+	DOCA_TRY(flexio_cq_create(proc, env->ibv, &cq_attr, &cq));
+
+	DOCA_TRY(flexio_buf_dev_alloc(proc, (size_t)64 * SQ_DEPTH, &ctx->sq_ring));
+	DOCA_TRY(flexio_buf_dev_memset(proc, 0, (size_t)64 * SQ_DEPTH, ctx->sq_ring));
+
+	struct flexio_qp *dqp;
+	struct flexio_qp_attr qattr = {
+		.transport_type = FLEXIO_QPC_ST_RC,
+		.uar_id = uar,
+		.pd = env->pd,
+		.qp_access_mask = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE,
+		.log_sq_depth = LOG_SQ_DEPTH,
+		.sq_cqn = flexio_cq_get_cq_num(cq),
+		.rq_type = FLEXIO_QP_QPC_RQ_TYPE_ZERO_SIZE_RQ,
+		.rq_cqn = flexio_cq_get_cq_num(cq),
+		.qp_wq_buff_qmem = { .memtype = FLEXIO_MEMTYPE_DPA, .daddr = ctx->sq_ring },
+		.qp_wq_dbr_qmem = { .memtype = FLEXIO_MEMTYPE_DPA, .daddr = dbr + 16 },
+	};
+	DOCA_TRY(flexio_qp_create(proc, env->ibv, &qattr, &dqp));
+	ctx->qp_num = flexio_qp_get_qp_num(dqp);
+
+	struct flexio_qp *rqp;
+	struct flexio_qp_attr rattr = {
+		.transport_type = FLEXIO_QPC_ST_RC,
+		.uar_id = uar,
+		.pd = env->pd,
+		.qp_access_mask = IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE,
+		.no_sq = 1,
+		.sq_cqn = flexio_cq_get_cq_num(cq),
+		.rq_type = FLEXIO_QP_QPC_RQ_TYPE_ZERO_SIZE_RQ,
+		.rq_cqn = flexio_cq_get_cq_num(cq),
+		.qp_wq_dbr_qmem = { .memtype = FLEXIO_MEMTYPE_DPA, .daddr = dbr + 32 },
+	};
+	DOCA_TRY(flexio_qp_create(proc, env->ibv, &rattr, &rqp));
+
+	dpa_qp_connect(dqp, flexio_qp_get_qp_num(rqp), env);
+	dpa_qp_connect(rqp, ctx->qp_num, env);
+
+	size_t stage_bsize = (size_t)MAL_RING_SIZE * sizeof(struct malicious_flow_record);
+	DOCA_TRY(flexio_buf_dev_alloc(proc, stage_bsize, &ctx->mal_stage));
+	DOCA_TRY(flexio_buf_dev_memset(proc, 0, stage_bsize, ctx->mal_stage));
+	struct flexio_mkey *mkey;
+	struct flexio_mkey_attr mkey_attr = {
+		.pd = env->pd,
+		.daddr = ctx->mal_stage,
+		.len = stage_bsize,
+		.access = IBV_ACCESS_LOCAL_WRITE,
+	};
+	DOCA_TRY(flexio_device_mkey_create(proc, &mkey_attr, &mkey));
+	ctx->mal_lkey = flexio_mkey_get_id(mkey);
+	ctx->mal_rkey = env->mr->rkey;
+	ctx->mal_raddr = (uint64_t)(uintptr_t)(env->rings + (size_t)eu * MAL_RING_SIZE);
+	ctx->eu = eu;
+}
+
+static void handle_malicious(const struct malicious_flow_record *r) {
+	const struct flow *f = &r->f;
+
+	fprintf(stdout,
+		"MAL eu=%u score=%d %u.%u.%u.%u:%u <-> %u.%u.%u.%u:%u proto=%u pkts=%u bytes=%u "
+		"len=[%u,%u] iat=[%u,%u,%u] rst=%u psh=%u fin=%u urg=%u\n",
+		r->eu, r->score,
+		f->t.src_ip >> 24, (f->t.src_ip >> 16) & 0xff, (f->t.src_ip >> 8) & 0xff, f->t.src_ip & 0xff, f->t.src_port,
+		f->t.dst_ip >> 24, (f->t.dst_ip >> 16) & 0xff, (f->t.dst_ip >> 8) & 0xff, f->t.dst_ip & 0xff, f->t.dst_port,
+		f->t.proto, f->total_pkts, f->total_bytes, f->pkt_min, f->pkt_max,
+		f->iat_min, f->iat_max, f->total_pkts > 1 ? f->iat_sum / (f->total_pkts - 1) : 0,
+		f->rst_count, f->psh_count, f->fin_count, f->urg_count);
+}
+
+static void *mal_consumer(void *arg) {
+	struct rdma_env *env = arg;
+	static uint64_t ci[NUM_EUS];
+
+	for (;;) {
+		for (uint32_t eu = 0; eu < NUM_EUS; eu++) {
+			struct malicious_flow_record *ring = env->rings + (size_t)eu * MAL_RING_SIZE;
+
+			for (;;) {
+				struct malicious_flow_record *r = &ring[ci[eu] & MAL_RING_MASK];
+				uint32_t expected = (uint32_t)(ci[eu] + 1);
+				uint32_t seq = __atomic_load_n(&r->seq, __ATOMIC_ACQUIRE);
+
+				if (seq != expected) {
+					if (seq == 0 || (int32_t)(seq - expected) < 0)
+						break;
+					__atomic_fetch_add(&mal_lost, seq - expected, __ATOMIC_RELAXED);
+					ci[eu] += seq - expected;
+				}
+				handle_malicious(r);
+				ci[eu]++;
+				__atomic_fetch_add(&mal_received, 1, __ATOMIC_RELAXED);
+			}
+		}
+	}
+	return NULL;
+}
+
+static uint64_t create_handler(struct rdma_env *env, uint32_t eu, flexio_uintptr_t flows, struct flexio_rq **rq) {
+	struct ibv_context *ibv = env->ibv;
+	struct ibv_pd *pd = env->pd;
 	struct flexio_event_handler *eh;
 	struct flexio_event_handler_attr eh_attr = {
 		.host_stub_func = pkt_handler,
@@ -127,6 +307,8 @@ static uint64_t create_handler(struct ibv_context *ibv, struct ibv_pd *pd, uint3
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
 	DOCA_TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
+	setup_mal(env, eh, eu, &ctx);
+
 	uint64_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
 	DOCA_TRY(flexio_event_handler_run(eh, ctx_daddr));
 	return ctx_daddr;
@@ -172,7 +354,8 @@ static struct mlx5dv_devx_obj *create_rss_tir(struct ibv_context *ibv, const uin
 	return obj;
 }
 
-static void steer_flows(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uintptr_t *ctx) {
+static void steer_flows(struct rdma_env *env, flexio_uintptr_t *ctx) {
+	struct ibv_context *ibv = env->ibv;
 	struct flexio_rq *rq[NUM_EUS];
 	uint32_t rqn[NUM_EUS];
 
@@ -183,7 +366,7 @@ static void steer_flows(struct ibv_context *ibv, struct ibv_pd *pd, flexio_uintp
 	DOCA_TRY(flexio_buf_dev_memset(proc, 0, flows_bsize, flows));
 
 	for (unsigned int eu = 0; eu < NUM_EUS; eu++) {
-		ctx[eu] = create_handler(ibv, pd, eu, flows + eu * eu_flows_bsize, &rq[eu]);
+		ctx[eu] = create_handler(env, eu, flows + eu * eu_flows_bsize, &rq[eu]);
 		rqn[eu] = flexio_rq_get_wq_num(rq[eu]);
 		DOCA_TRY(rqn[eu] == UINT32_MAX);
 	}
@@ -241,8 +424,14 @@ int main() {
 
 	DOCA_TRY(flexio_msg_stream_create(proc, &stream_attr, stdout, NULL, &stream));
 
+	static struct rdma_env env;
+	rdma_env_init(&env, ibv, pd);
+
 	flexio_uintptr_t ctx[NUM_EUS];
-	steer_flows(ibv, pd, ctx);
+	steer_flows(&env, ctx);
+
+	pthread_t consumer;
+	DOCA_TRY(pthread_create(&consumer, NULL, mal_consumer, &env));
 
 	flexio_uintptr_t ctxs = to_dpa(ctx, sizeof(ctx));
 	flexio_uintptr_t st_daddr;
@@ -253,7 +442,7 @@ int main() {
 
 	struct timespec t0, now;
 	clock_gettime(CLOCK_MONOTONIC, &t0);
-	uint64_t last = 0, last_coll = 0, last_inferred = 0, last_mal = 0;
+	uint64_t last = 0, last_coll = 0, last_inferred = 0, last_mal = 0, last_rx = 0;
 	double last_t = 0;
 	int duration = 0;
 	while (1) {
@@ -282,7 +471,8 @@ int main() {
 				"flow table: " C_CYN "%lu/%u (%.1f%%)" C_RST "\n"
 				"collisions: " C_RED "%.3f%%" C_RST "\n"
 				"inferred: " C_MAG "%f" C_RST " million flows/s\n"
-				"malicious: " C_RED "%.3f%%" C_RST "\n",
+				"malicious: " C_RED "%.3f%%" C_RST "\n"
+				"rdma to host: " C_GRN "%.0f" C_RST " flows/s, lost: %lu, dropped: %lu, rdma errors: %lu\n",
 			((count - last) / (t - last_t)) / 1000000, 
 			count ? (double)cycles / count : 0.0,
 			used, 
@@ -290,8 +480,13 @@ int main() {
 			100.0 * used / (NUM_EUS << LOG_FLOW_ENTRIES),
 			coll_pct, 
 			(inferred - last_inferred) / (t - last_t) / 1000000,
-			mal_pct
+			mal_pct,
+			(__atomic_load_n(&mal_received, __ATOMIC_RELAXED) - last_rx) / (t - last_t),
+			__atomic_load_n(&mal_lost, __ATOMIC_RELAXED),
+			st.mal_dropped,
+			st.sq_errors
 		);
+		last_rx = __atomic_load_n(&mal_received, __ATOMIC_RELAXED);
 		last = count;
 		last_coll = coll;
 		last_t = t;
