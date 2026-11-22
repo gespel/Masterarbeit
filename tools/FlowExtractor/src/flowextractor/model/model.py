@@ -100,6 +100,34 @@ class QReLU(torch.nn.Module):
     def forward(self, x):
         return torch.clamp(x, 0, Q_MAX / Q_SCALE)
 
+class AnomalyDetectionNet(torch.nn.Module):
+    def __init__(self, input_vector_size=14):
+        super().__init__()
+        self.layers = torch.nn.Sequential(
+            QLinear(input_vector_size, 16),
+            QReLU(),
+            QLinear(16, 16),
+            QReLU(),
+            QLinear(16, 8),
+            QReLU(),
+            QLinear(8, 4),
+            QReLU(),
+            QLinear(4, 8),
+            QReLU(),
+            QLinear(8, 16),
+            QReLU(),
+            QLinear(16, input_vector_size)
+        )
+        self.double()
+        self.clip_parameters()
+
+    def forward(self, x):
+        return self.layers(x.to(torch.float64)) - DEVICE_THRESHOLD_Q / Q_SCALE
+
+    @torch.no_grad()
+    def clip_parameters(self):
+        for p in self.parameters():
+            p.clamp_(Q_MIN / Q_SCALE, Q_MAX / Q_SCALE)
 
 class AttackDetectionNet(torch.nn.Module):
     def __init__(self, input_vector_size=14):
