@@ -246,8 +246,6 @@ static struct flow *flow_update(struct pkt_ctx *c, const struct five_tuple *t, u
 	return NULL;
 }
 
-
-
 static inline void bucket_cleaner(struct pkt_ctx *c, struct flow *bucket, unsigned int size, uint32_t now) {
 	for (unsigned int i = 0; i < size; i++) {
 		struct flow *f = &bucket[i];
@@ -264,10 +262,6 @@ static inline void bucket_cleaner(struct pkt_ctx *c, struct flow *bucket, unsign
 		}
 	}
 }
-
-
-
-
 
 flexio_dev_event_handler_t pkt_handler;
 __dpa_global__ void pkt_handler(uint64_t arg) {

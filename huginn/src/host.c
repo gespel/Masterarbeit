@@ -134,7 +134,7 @@ static void dpa_qp_connect(struct flexio_qp *qp, uint32_t remote, struct rdma_en
 	}
 }
 
-static void setup_mal(struct rdma_env *env, struct flexio_event_handler *eh, uint32_t eu, struct pkt_ctx *ctx) {
+static void setup_malicious(struct rdma_env *env, struct flexio_event_handler *eh, uint32_t eu, struct pkt_ctx *ctx) {
 	uint32_t uar = flexio_uar_get_id(flexio_process_get_uar(proc));
 	struct mlx5_cqe64 cqes[SQ_DEPTH] = {0};
 	uint8_t zero[64] = {0};
@@ -228,11 +228,11 @@ static void *mal_consumer(void *arg) {
 	struct rdma_env *env = arg;
 	static uint64_t ci[NUM_EUS];
 
-	for (;;) {
+	while(1) {
 		for (uint32_t eu = 0; eu < NUM_EUS; eu++) {
 			struct malicious_flow_record *ring = env->rings + (size_t)eu * MAL_RING_SIZE;
 
-			for (;;) {
+			while(1) {
 				struct malicious_flow_record *r = &ring[ci[eu] & MAL_RING_MASK];
 				uint32_t expected = (uint32_t)(ci[eu] + 1);
 				uint32_t seq = __atomic_load_n(&r->seq, __ATOMIC_ACQUIRE);
@@ -307,7 +307,7 @@ static uint64_t create_handler(struct rdma_env *env, uint32_t eu, flexio_uintptr
 	dbr[0] = htobe32(Q_DEPTH); /* receive counter = number of posted WQEs */
 	DOCA_TRY(flexio_host2dev_memcpy(proc, dbr, sizeof(dbr), ctx.rq_dbr));
 
-	setup_mal(env, eh, eu, &ctx);
+	setup_malicious(env, eh, eu, &ctx);
 
 	uint64_t ctx_daddr = to_dpa(&ctx, sizeof(ctx));
 	DOCA_TRY(flexio_event_handler_run(eh, ctx_daddr));
