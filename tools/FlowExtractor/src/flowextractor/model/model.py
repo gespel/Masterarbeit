@@ -122,7 +122,7 @@ class AnomalyDetectionNet(torch.nn.Module):
         self.clip_parameters()
 
     def forward(self, x):
-        return self.layers(x.to(torch.float64)) - DEVICE_THRESHOLD_Q / Q_SCALE
+        return self.layers(x.to(torch.float64))
 
     @torch.no_grad()
     def clip_parameters(self):
@@ -135,11 +135,7 @@ class AnomalyDetectionNet(torch.nn.Module):
         self.to(device)
         self.train()
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
-        # pos_weight > 1 gewichtet malicious-Samples staerker, um das Klassenungleichgewicht auszugleichen
-        if pos_weight is not None:
-            print(f"Using pos_weight={pos_weight:.2f} for malicious samples.")
-            pos_weight = torch.tensor(pos_weight, dtype=torch.float64, device=device)
-        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        loss_fn = torch.nn.MSELoss()
         dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
         for epoch in tqdm.tqdm(range(epochs), desc="Training Epochs"):
             total_loss = 0
@@ -147,7 +143,7 @@ class AnomalyDetectionNet(torch.nn.Module):
                 x, y = x.to(device), y.to(device)
                 optimizer.zero_grad()
                 y_pred = self.forward(x)
-                loss = loss_fn(y_pred, y.unsqueeze(1).to(y_pred.dtype))
+                loss = loss_fn(y_pred, y.to(y_pred.dtype))
                 loss.backward()
                 optimizer.step()
                 self.clip_parameters()
@@ -279,55 +275,86 @@ def main():
     argparser.add_argument("--loop", action="store_true", help="If set, the script will run in a loop, retraining the model every hour.")
     argparser.add_argument("--pos_weight", type=str, default="auto",
                            help="Loss weight for malicious samples: 'auto' (benign/malicious ratio of the training set), 'none' (unweighted) or a number.")
+    argparser.add_argument("--model_type", type=str, default="attack_detection", choices=["attack_detection", "anomaly_detection"], help="Type of model to train: 'attack_detection' for binary classification or 'anomaly_detection' for autoencoder-based anomaly detection.")
     args = argparser.parse_args()
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
-    while True:
-        #tb.send_message(793377854, "Starting training of the attack detection model.")
+    if args.model_type == "attack_detection":
+        while True:
+            #tb.send_message(793377854, "Starting training of the attack detection model.")
+            raw_data = pandas.read_csv(args.feature_csv)
+            training_data = normalize_training_data(raw_data)
+            print(training_data.info())
+            #tb.send_message(793377854, f"Training data loaded. {len(training_data)} samples available. Starting training now...")
+
+            x = torch.tensor(training_data[FEATURE_COLUMNS].to_numpy(), dtype=torch.float64)
+            y = torch.tensor((training_data["Label"] == "malicious").to_numpy(), dtype=torch.float32)
+            #is_ssh = torch.tensor(((raw_data["Source Port"] == 22) | (raw_data["Destination Port"] == 22)).to_numpy())
+
+            # chronological split: flows are appended to the csv in recording order
+            split = int(len(x) * 0.8)
+            X_train, X_test = x[:split], x[split:]
+            y_train, y_test = y[:split], y[split:]
+            #ssh_test = is_ssh[split:]
+            print(f"Train: {len(y_train)} samples ({int(y_train.sum())} malicious), Test: {len(y_test)} samples ({int(y_test.sum())} malicious)")
+
+            pos_weight = resolve_pos_weight(args.pos_weight, y_train)
+
+            m = AttackDetectionNet()
+            print(m)
+            m.fit(list(zip(X_train, y_train)), batch_size=args.batch_size, epochs=args.epochs, pos_weight=pos_weight, telegram_bot=None)
+
+            if not args.dry_run:
+                torch.save(m, f"ssh_detection_model_{time.strftime('%Y%m%d-%H%M%S')}.pt")
+
+            out_q = dpa_inference(m, numpy.rint(X_test.numpy() * Q_SCALE))
+            y_pred = torch.from_numpy((out_q > DEVICE_THRESHOLD_Q).astype(numpy.int32))
+            y_true = y_test.int()
+
+            with torch.no_grad():
+                y_pred_train_path = (m(X_test).squeeze(1) > 0).int()
+            mismatches = int((y_pred != y_pred_train_path).sum())
+            if mismatches:
+                print(f"WARNING: fake-quant forward pass and DPA integer reference disagree on {mismatches} of {len(y_pred)} test flows.")
+
+            print_metrics("All flows (DPA integer inference)", y_true, y_pred, telegram_bot=None)
+            #print_metrics("SSH flows only", y_true[ssh_test], y_pred[ssh_test], telegram_bot=tb)
+            #print_metrics("Baseline: port 22 => malicious", y_true, ssh_test.int(), telegram_bot=tb)
+
+            if not args.loop:
+                break
+
+            time.sleep(1800)
+    if args.model_type == "anomaly_detection":
         raw_data = pandas.read_csv(args.feature_csv)
         training_data = normalize_training_data(raw_data)
         print(training_data.info())
-        #tb.send_message(793377854, f"Training data loaded. {len(training_data)} samples available. Starting training now...")
 
-        x = torch.tensor(training_data.drop([FEATURE_COLUMNS].to_numpy(), dtype=torch.float64)
-        y = torch.tensor((training_data["Label"] == "malicious").to_numpy(), dtype=torch.float32)
-        #is_ssh = torch.tensor(((raw_data["Source Port"] == 22) | (raw_data["Destination Port"] == 22)).to_numpy())
+        data = training_data[(~training_data["Label"].str.contains("malicious"))]
+        print(data.head())
+        x = torch.tensor(data.drop(["Label", "Attack Type"], axis=1).to_numpy(), dtype=torch.float64)
+        y = torch.tensor(data.drop(["Label", "Attack Type"], axis=1).to_numpy(), dtype=torch.float64)
 
-        # chronological split: flows are appended to the csv in recording order
         split = int(len(x) * 0.8)
         X_train, X_test = x[:split], x[split:]
         y_train, y_test = y[:split], y[split:]
-        #ssh_test = is_ssh[split:]
-        print(f"Train: {len(y_train)} samples ({int(y_train.sum())} malicious), Test: {len(y_test)} samples ({int(y_test.sum())} malicious)")
+        print(f"Train: {len(y_train)} samples, Test: {len(y_test)} samples")
 
-        pos_weight = resolve_pos_weight(args.pos_weight, y_train)
-
-        m = AttackDetectionNet()
+        m = AnomalyDetectionNet()
         print(m)
-        m.fit(list(zip(X_train, y_train)), batch_size=args.batch_size, epochs=args.epochs, pos_weight=pos_weight, telegram_bot=None)
+        m.fit(list(zip(X_train, y_train)), batch_size=args.batch_size, epochs=args.epochs, pos_weight=None, telegram_bot=None)
 
-        if not args.dry_run:
-            torch.save(m, f"ssh_detection_model_{time.strftime('%Y%m%d-%H%M%S')}.pt")
+        evil_data = training_data[(training_data["Label"].str.contains("malicious"))]
+        x_evil = torch.tensor(evil_data.drop(["Label", "Attack Type"], axis=1).to_numpy(), dtype=torch.float64)
+        y_evil = torch.tensor(evil_data.drop(["Label", "Attack Type"], axis=1).to_numpy(), dtype=torch.float64)
 
-        out_q = dpa_inference(m, numpy.rint(X_test.numpy() * Q_SCALE))
-        y_pred = torch.from_numpy((out_q > DEVICE_THRESHOLD_Q).astype(numpy.int32))
-        y_true = y_test.int()
-
+        m.eval()
         with torch.no_grad():
-            y_pred_train_path = (m(X_test).squeeze(1) > 0).int()
-        mismatches = int((y_pred != y_pred_train_path).sum())
-        if mismatches:
-            print(f"WARNING: fake-quant forward pass and DPA integer reference disagree on {mismatches} of {len(y_pred)} test flows.")
-
-        print_metrics("All flows (DPA integer inference)", y_true, y_pred, telegram_bot=None)
-        #print_metrics("SSH flows only", y_true[ssh_test], y_pred[ssh_test], telegram_bot=tb)
-        #print_metrics("Baseline: port 22 => malicious", y_true, ssh_test.int(), telegram_bot=tb)
-
-        if not args.loop:
-            break
-
-        time.sleep(1800)
+            y_pred = m(X_test)
+            y_pred_evil = m(x_evil)
+            print(f"Average reconstruction error for benign test flows: {torch.mean(torch.abs(y_pred - y_test)) * 100:.2f} %")
+            print(f"Average reconstruction error for malicious flows: {torch.mean(torch.abs(y_pred_evil - y_evil)) * 100:.2f} %")
 
 
 if __name__ == "__main__":
