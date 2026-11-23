@@ -351,11 +351,10 @@ def main():
 
         m.eval()
         with torch.no_grad():
-            y_pred = m(X_test)
-            y_pred_evil = m(x_evil)
-            print(f"Average reconstruction error for benign test flows: {torch.mean(torch.abs(y_pred - y_test)) * 100:.2f} %")
-            print(f"Average reconstruction error for malicious flows: {torch.mean(torch.abs(y_pred_evil - y_evil)) * 100:.2f} %")
-
+            err_benign = torch.mean(torch.abs(m(X_test) - X_test), dim=1)
+            err_evil   = torch.mean(torch.abs(m(x_evil) - x_evil), dim=1)
+            print(f"Average reconstruction error for benign flows: {(err_benign.mean() * 100):.6f} %")
+            print(f"Average reconstruction error for malicious flows: {(err_evil.mean() * 100):.6f} %")
 
 if __name__ == "__main__":
     main()
