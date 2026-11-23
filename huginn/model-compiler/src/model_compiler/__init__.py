@@ -58,7 +58,10 @@ class ModelCompiler:
         scale = 2147483647.0
         return round(max(min(value * scale, 2147483647), -2147483648))
 
-    def compile(self, model: torch.nn.Module) -> str:
+    def compile_autoencoder(self, model: torch.nn.Module) -> str:
+        pass
+
+    def compile_mlp(self, model: torch.nn.Module) -> str:
         out = ""
         defines = f"#include <stdint.h>\n\n#define NN_SHIFT {FRAC_BITS}\n"
         weight_defs = ""
