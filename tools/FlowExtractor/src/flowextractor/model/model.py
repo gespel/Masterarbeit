@@ -104,19 +104,19 @@ class AnomalyDetectionNet(torch.nn.Module):
     def __init__(self, input_vector_size=14):
         super().__init__()
         self.layers = torch.nn.Sequential(
-            QLinear(input_vector_size, 16),
+            QLinear(input_vector_size, 32),
             QReLU(),
-            QLinear(16, 16),
+            QLinear(32, 16),
             QReLU(),
             QLinear(16, 8),
             QReLU(),
-            QLinear(8, 2),
+            QLinear(8, 4),
             QReLU(),
-            QLinear(2, 8),
+            QLinear(4, 8),
             QReLU(),
-            QLinear(8, 16),
+            QLinear(8, 32),
             QReLU(),
-            QLinear(16, input_vector_size)
+            QLinear(32, input_vector_size)
         )
         self.double()
         self.clip_parameters()
