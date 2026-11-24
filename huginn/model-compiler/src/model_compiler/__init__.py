@@ -1,6 +1,6 @@
 import torch
 import argparse
-
+from .model_serializer import *
 from flowextractor.model.model import AttackDetectionNet
 
 FRAC_BITS = 15
@@ -122,11 +122,13 @@ def main() -> None:
     args = arg.parse_args()
     
     m = torch.load(args.model, weights_only=False)
-    mc = ModelCompiler()
-    text = mc.compile(m)
+    ms = ModelSerializer()
+    print(ms.serialize(m))
+    #mc = ModelCompiler()
+    #text = mc.compile(m)
 
-    with open(args.output, "w") as f:
-        f.write(text)
+    #with open(args.output, "w") as f:
+    #    f.write(text)
 
 if __name__ == "__main__":
     main()

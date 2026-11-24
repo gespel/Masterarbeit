@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 model-compiler = "model_compiler:main"
+model-serializer = "model_compiler.model_serializer:main"
 
 [build-system]
 requires = ["hatchling"]
