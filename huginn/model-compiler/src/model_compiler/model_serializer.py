@@ -64,10 +64,18 @@ class ModelSerializer:
                 layers_weights = []
                 layers_biases = []
                 for weight_index in range(0, param.weight.numel()):
-                    layers_weights.append(self.f32_to_int16(param.weight.view(-1)[weight_index].item()))
+                    weight = param.weight.view(-1)[weight_index].item()
+                    if instanceof(weight, float):
+                        layers_weights.append(self.f32_to_int16(weight))
+                    else:
+                        layers_weights.append(weight)
                     #print(param.weight.view(-1)[weight_index].item())
                 for bias_index in range(0, param.bias.numel()):
-                    layers_biases.append(self.f32_to_int16(param.bias.view(-1)[bias_index].item()))
+                    bias = param.bias.view(-1)[bias_index].item()
+                    if instanceof(bias, float):
+                        layers_biases.append(self.f32_to_int16(bias))
+                    else:
+                        layers_biases.append(bias)
                 model_weights.append(layers_weights)
                 model_biases.append(layers_biases)
 
