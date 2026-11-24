@@ -1,6 +1,8 @@
 import argparse
 import json
 import torch
+import uuid
+import namer
 
 FRAC_BITS = 15
 Q_SCALE = 1 << FRAC_BITS
@@ -42,6 +44,7 @@ class ModelSerializer:
         out = {}
         print("Starting serializing a pytorch model...")
         out["type"] = "torch_neural_network"
+        out["name"] = namer.generate(category='__all__', separator='_')
         print(model)
         out["model_def"] = {}
         
@@ -88,9 +91,10 @@ class ModelSerializer:
         with open(name, "w") as f:
             f.write(self.model_string)
 
-model_serializer = ModelSerializer()
+if __name__ == "__main__":
+    model_serializer = ModelSerializer()
 
-model = TestModel()
+    model = TestModel()
 
-model_serializer.serialize(model)
-model_serializer.write_to_file("test_model.json")
+    model_serializer.serialize(model)
+    model_serializer.write_to_file("test_model.json")
