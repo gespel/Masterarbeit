@@ -8,22 +8,6 @@ FRAC_BITS = 15
 Q_SCALE = 1 << FRAC_BITS
 Q_MIN, Q_MAX = -(1 << 15), (1 << 15) - 1
 
-class TestModel(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-        self.layers = torch.nn.Sequential(
-            torch.nn.Linear(4, 4),
-            torch.nn.ReLU(),
-            torch.nn.Linear(4, 2),
-            torch.nn.ReLU(),
-            torch.nn.Linear(2, 1)
-        )
-
-    def forward(self, x):
-        return self.layers(x)
-
-
 class ModelSerializer:
     def __init__(self):
         print("ModelSerializer initialized!")
@@ -98,11 +82,3 @@ class ModelSerializer:
     def write_to_file(self, name: str):
         with open(name, "w") as f:
             f.write(self.model_string)
-
-if __name__ == "__main__":
-    model_serializer = ModelSerializer()
-
-    model = TestModel()
-
-    model_serializer.serialize(model)
-    model_serializer.write_to_file("test_model.json")
