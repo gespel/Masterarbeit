@@ -101,7 +101,7 @@ class ModelSerializer:
         
         if list(model.named_modules())[-1][1].out_features == 1:
             model_def["model_type"] = "binary_classification"
-        if list(model.named_modules())[-1][1].out_features == list(model.named_modules())[0][1].in_features:
+        elif list(model.named_modules())[-1][1].out_features == list(model.named_modules())[-1][1].in_features:
             model_def["model_type"] = "autoencoder"
         return json.dumps(out, indent=4)
 
@@ -146,6 +146,6 @@ def main():
     
     ms = ModelSerializer()
     
-    ms.serialize(rf)
+    ms.serialize(tn)
 
-    print(rf.predict([[3, 3]]))
+    #print(rf.predict([[3, 3]]))
