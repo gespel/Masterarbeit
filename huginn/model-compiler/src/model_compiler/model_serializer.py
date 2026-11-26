@@ -2,7 +2,9 @@ import argparse
 import json
 import torch
 import uuid
+import math
 import namer
+from sklearn.ensemble import RandomForestClassifier
 
 FRAC_BITS = 15
 Q_SCALE = 1 << FRAC_BITS
@@ -23,6 +25,37 @@ class ModelSerializer:
     def f32_to_int32(self, value: float) -> int:
         scale = 2147483647.0
         return round(max(min(value * scale, 2147483647), -2147483648))
+
+    def _serialize_random_forest(self, model: RandomForestClassifier) -> str:
+        out = {}
+        out["type"] = "scikit_random_forest"
+        out["name"] = namer.generate(category='__all__', separator='_')
+        out["model_def"] = {}
+        model_def = out["model_def"]
+        model_def["n_estimators"] = model.n_estimators
+        model_def["n_features"] = int(model.n_features_in_)
+        model_def["max_depth"] = model.max_depth
+        model_def["estimators"] = []
+
+        print("Starting serializing a scikit-learn random forest...")
+        for estimator in model.estimators_:
+            estimator_def = {}
+            estimator_def["depth"] = estimator.get_depth()
+            estimator_def["n_leaves"] = int(estimator.get_n_leaves())
+
+            decision_tree = estimator.tree_
+            estimator_def["tree"] = {}
+            tree_def = estimator_def["tree"]
+            tree_def["n_nodes"] = decision_tree.node_count
+            tree_def["children_left"] = decision_tree.children_left.tolist()
+            tree_def["children_right"] = decision_tree.children_right.tolist()
+            tree_def["feature"] = decision_tree.feature.tolist()
+            tree_def["threshold"] = [math.floor(threshold) for threshold in decision_tree.threshold.tolist()]
+            tree_def["value"] = [[1 if v > 0.5 else 0 for v in value[0]] for value in decision_tree.value.tolist()]
+
+            model_def["estimators"].append(estimator_def)
+
+        return json.dumps(out, indent=4)
 
     def _serialize_torch_neural_network(self, model) -> str:
         out = {}
@@ -76,6 +109,8 @@ class ModelSerializer:
         out = ""
         if isinstance(model, torch.nn.Module):
             out = self._serialize_torch_neural_network(model)
+        elif isinstance(model, RandomForestClassifier):
+            out = self._serialize_random_forest(model)
 
         self.model_string = out
         print(out)
@@ -104,8 +139,13 @@ class TestNetwork(torch.nn.Module):
 
 
 def main():
+    rf = RandomForestClassifier(n_estimators=1, max_depth=8)
+    rf.fit([[1, 2], [2, 3], [4, 5], [1, 1], [2, 2]], [1, 1, 1, 0, 0])
+
     tn = TestNetwork()
     
     ms = ModelSerializer()
     
-    ms.serialize(tn)
+    ms.serialize(rf)
+
+    print(rf.predict([[3, 3]]))
