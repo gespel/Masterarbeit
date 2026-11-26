@@ -151,3 +151,13 @@ def main():
     ms.serialize(tn)
 
     #print(rf.predict([[3, 3]]))
+
+if __name__ == "__main__":
+    import argparse
+
+    arg = argparse.ArgumentParser()
+    arg.add_argument("model_path", type=str)
+
+    args = arg.parse_args()
+
+    print(f"{args.model_path}")
