@@ -49,14 +49,14 @@ class ModelSerializer:
                 layers_biases = []
                 for weight_index in range(0, param.weight.numel()):
                     weight = param.weight.view(-1)[weight_index].item()
-                    if instanceof(weight, float):
+                    if isinstance(weight, float):
                         layers_weights.append(self.f32_to_int16(weight))
                     else:
                         layers_weights.append(weight)
                     #print(param.weight.view(-1)[weight_index].item())
                 for bias_index in range(0, param.bias.numel()):
                     bias = param.bias.view(-1)[bias_index].item()
-                    if instanceof(bias, float):
+                    if isinstance(bias, float):
                         layers_biases.append(self.f32_to_int16(bias))
                     else:
                         layers_biases.append(bias)
@@ -68,6 +68,8 @@ class ModelSerializer:
         
         if list(model.named_modules())[-1][1].out_features == 1:
             model_def["model_type"] = "binary_classification"
+        if list(model.named_modules())[-1][1].out_features == list(model.named_modules())[0][1].in_features:
+            model_def["model_type"] = "autoencoder"
         return json.dumps(out, indent=4)
 
     def serialize(self, model) -> str:
@@ -82,3 +84,28 @@ class ModelSerializer:
     def write_to_file(self, name: str):
         with open(name, "w") as f:
             f.write(self.model_string)
+
+class TestNetwork(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.layers = torch.nn.Sequential(
+            torch.nn.Linear(8, 4),
+            torch.nn.ReLU(),
+            torch.nn.Linear(4, 2),
+            torch.nn.ReLU(),
+            torch.nn.Linear(2, 4),
+            torch.nn.ReLU(),
+            torch.nn.Linear(4, 8)
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+def main():
+    tn = TestNetwork()
+    
+    ms = ModelSerializer()
+    
+    ms.serialize(tn)
