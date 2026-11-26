@@ -98,10 +98,12 @@ class ModelSerializer:
 
             elif isinstance(param, torch.nn.ReLU):
                 print(f"Found ReLU activation function. {name}")
+
+        linear_layers = [m for m in model.modules() if isinstance(m, torch.nn.Linear)]
         
-        if list(model.named_modules())[-1][1].out_features == 1:
+        if linear_layers[-1].out_features == 1:
             model_def["model_type"] = "binary_classification"
-        elif list(model.named_modules())[-1][1].out_features == list(model.named_modules())[-1][1].in_features:
+        elif linear_layers[-1].out_features == linear_layers[0].in_features:
             model_def["model_type"] = "autoencoder"
         return json.dumps(out, indent=4)
 
