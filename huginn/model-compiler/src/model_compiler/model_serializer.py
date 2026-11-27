@@ -141,23 +141,19 @@ class TestNetwork(torch.nn.Module):
 
 
 def main():
-    rf = RandomForestClassifier(n_estimators=1, max_depth=8)
-    rf.fit([[1, 2], [2, 3], [4, 5], [1, 1], [2, 2]], [1, 1, 1, 0, 0])
-
-    tn = TestNetwork()
-    
-    ms = ModelSerializer()
-    
-    ms.serialize(tn)
-
-    #print(rf.predict([[3, 3]]))
-
-if __name__ == "__main__":
     import argparse
-
+    
     arg = argparse.ArgumentParser()
     arg.add_argument("model_path", type=str)
 
     args = arg.parse_args()
 
-    print(f"{args.model_path}")
+    model = torch.load(args.model_path, weights_only=False)
+
+    ms = ModelSerializer()
+    ms.serialize(model)
+    ms.write_to_file(f"{args.model_path}.json")
+
+if __name__ == "__main__":
+    main()
+    
