@@ -33,35 +33,32 @@ class ModelCompiler:
         bias_defs = ""
         values_defs = ""
 
-        print("Compiling the model...")
+        #print("Compiling the model...")
         i = 0
-
-        for name, param in model.named_modules():
+        weights = model_json["model_def"]["weights"]
+        for layer_weights in weights:
             # check if the parameter is a weight or bias
-            if isinstance(param, torch.nn.Linear):
-                weight = param.weight
-                bias = param.bias
 
-                #print(f"Layer: {name}, Weight shape: {weight.shape}")
-                defines += f"#define NN_H{i} {weight.shape[1]}\n"
+            #print(f"Layer: {name}, Weight shape: {weight.shape}")
+            defines += f"#define NN_H{i} {model_json["model_def"]["layers"][i][0]}\n"
 
-                weight_defs += f"    static const int16_t w{i+1}[NN_H{i} * NN_H{i+1}] = {{"
-                for j in range(weight.numel()):
-                    weight_defs += f"{self.f32_to_int16(weight.view(-1)[j].item())}, "
-                weight_defs = weight_defs[:-2]
-                weight_defs += "};\n"
+            weight_defs += f"    static const int16_t w{i+1}[NN_H{i} * NN_H{i+1}] = {{"
+            for j in range(len(layer_weights)):
+                weight_defs += f"{layer_weights[j]}, "
+            weight_defs = weight_defs[:-2]
+            weight_defs += "};\n"
 
-                bias_defs += f"    static const int16_t b{i+1}[NN_H{i+1}] = {{"
-                for j in range(bias.numel()):
-                    bias_defs += f"{self.f32_to_int16(bias.view(-1)[j].item())}, "
-                bias_defs = bias_defs[:-2]
-                bias_defs += "};\n"
+            bias_defs += f"    static const int16_t b{i+1}[NN_H{i+1}] = {{"
+            for j in range(len(model_json["model_def"]["biases"][i])):
+                bias_defs += f"{model_json["model_def"]["biases"][i][j]}, "
+            bias_defs = bias_defs[:-2]
+            bias_defs += "};\n"
 
-                if i != 0:
-                    values_defs += f"    int16_t v{i}[NN_H{i}];\n"
+            if i != 0:
+                values_defs += f"    int16_t v{i}[NN_H{i}];\n"
 
-                i += 1
-        defines += f"#define NN_H{i} {model.layers[len(model.layers)-1].out_features}\n"
+            i += 1
+        defines += f"#define NN_H{i} {model_json["model_def"]["layers"][-1][1]}\n"
         
         out += f"{defines}\n"
         out += f"{LAYER_FUNCTION}\n"
@@ -81,4 +78,15 @@ class ModelCompiler:
         return out
 
 def main():
-    pass
+    import argparse
+
+    arg = argparse.ArgumentParser()
+    arg.add_argument("--model_path", type=str, required=True, help="Path to the model file")
+
+    args = arg.parse_args()
+
+    with open(args.model_path, "r") as f:
+        model_json = json.load(f)
+        model_compiler = ModelCompiler()
+        c_code = model_compiler.compile_mlp(model_json)
+        print(c_code)
