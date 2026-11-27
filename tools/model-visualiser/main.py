@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import networkx as nx
 from matplotlib import pyplot as plt
 
@@ -31,15 +32,23 @@ def main():
                 num_next_layer_nodes = layers[layer][1]
 
                 for next_layer_node_index in range(0, num_next_layer_nodes):
-                    G.add_edge(f"{layer}_{id}", f"{layer + 1}_{next_layer_node_index}")
-
+                    weight = model["model_def"]["weights"][layer][next_layer_node_index * model["model_def"]["layers"][layer][0] + id]
+                    red = 0
+                    blue = 0
+                    if weight > 0:
+                        blue = weight / 32768
+                    elif weight < 0:
+                        red = -weight /32768
+                
+                    G.add_edge(f"{layer}_{id}", f"{layer + 1}_{next_layer_node_index}", color=(red, 0.0, blue, abs(weight / 32768)))
         for node in G.nodes:
             G.nodes[node]["layer"] = int(node.split("_")[0])
 
         pos = nx.multipartite_layout(G, subset_key="layer")
-        nx.draw(G, pos, node_size=50, width=0.2)
+        edge_colors = [G.edges[e]["color"] for e in G.edges]
+        nx.draw(G, pos, node_size=50, width=0.2, edge_color=edge_colors)
+        plt.savefig("model.pdf")
         plt.show()
-        plt.savefig("model.png", dpi=200)
 
 if __name__ == "__main__":
     main()
