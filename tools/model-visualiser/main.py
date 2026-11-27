@@ -40,7 +40,7 @@ def main():
                     elif weight < 0:
                         red = -weight /32768
                 
-                    G.add_edge(f"{layer}_{id}", f"{layer + 1}_{next_layer_node_index}", color=(red, 0.0, blue, abs(weight / 32768)))
+                    G.add_edge(f"{layer}_{id}", f"{layer + 1}_{next_layer_node_index}", color=(red, 0.0, blue, pow(abs(weight / 32768), 2)))
         for node in G.nodes:
             G.nodes[node]["layer"] = int(node.split("_")[0])
 
